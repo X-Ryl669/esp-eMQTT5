@@ -1,0 +1,44 @@
+menu "esp-eMQTT5"
+
+config ESP_EMQTT5_ENABLED
+    bool "Enable the eMQTT5 component"
+    default y
+    help
+        This enables the eMQTT5 component.
+
+config ESP_EMQTT5_STACK_SIZE
+    int "MQTT event loop expected task stack size"
+        depends on ESP_EMQTT5_ENABLED
+    default 256
+    help
+        Temporary buffer allocations are prefered on the stack before being done on the heap. If you run eMQTT5 event loop in a task, please set the maximum size that's safe to allocate on stack here.
+
+config ESP_EMQTT5_TLS_ENABLE
+   bool "Enable TLS connection"
+   depends on ESP_EMQTT5_ENABLED
+   default n
+   help
+        You can activate TLS but it burns space in memory and flash.
+
+config ESP_EMQTT5_MAXQOS
+   int "Max supported QualityOfService level"
+   depends on ESP_EMQTT5_ENABLED
+   default 2
+   help
+        You can limit the highest supported QoS level to save space in memory and flash if you don't need all QoS features.
+
+config ESP_EMQTT5_AUTH
+   bool "Enable AUTH packet processing"
+   depends on ESP_EMQTT5_ENABLED
+   default n
+   help
+        If you want to support AUTH packet with your broker, enable this. 
+
+config ESP_EMQTT5_DUMP
+   bool "Enable communication dumping"
+   depends on ESP_EMQTT5_ENABLED
+   default n
+   help
+        Only for debugging purpose, this will dump all communication between the client and the broker. Don't let this enabled for production as it will show all secrets in the logs
+
+endmenu
