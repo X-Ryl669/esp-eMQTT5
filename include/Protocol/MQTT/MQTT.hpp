@@ -6,39 +6,40 @@
 // We need Platform code for allocations too
 #include "../../Platform/Platform.hpp"
 
-#if (MQTTDumpCommunication == 1)
-  // Because all projects are different, it's hard to give a generic method for dumping elements.
-  // So we end up with only limited dependencies:  
-  // - a string class that concatenate with operator +=
-  // - the string class has MQTTStringGetData(MQTTString instance) method returning a pointer to the string array 
-  // - the string class has MQTTStringGetLength(MQTTString instance) method returning the array size of the string 
-  // - a hexadecimal dumping method
-  // - a printf-like formatting function
 
-  // Feel free to define the string class and method to use beforehand if you want to use your own.
-  // If none provided, we use's std::string class (or ClassPath's FastString depending on the environment)
-  #ifndef MQTTStringPrintf
-    static MQTTString MQTTStringPrintf(const char * format, ...)
-    {
-        va_list argp;
-        va_start(argp, format);
-        char buf[512];
-        // We use vasprintf extension to avoid dual parsing of the format string to find out the required length
-        int err = vsnprintf(buf, sizeof(buf), format, argp);
-        va_end(argp);
-        if (err <= 0) return MQTTString();
-        if (err >= (int)sizeof(buf)) err = (int)(sizeof(buf) - 1);
-        buf[err] = 0;
-        return MQTTString(buf, (size_t)err);
-    }
-  #endif
-  #ifndef MQTTHexDump 
-    static void MQTTHexDump(MQTTString & out, const uint8* bytes, const uint32 length)
-    {
-        for (uint32 i = 0; i < length; i++) 
-            out += MQTTStringPrintf("%02X", bytes[i]);
-    }
-  #endif
+#if (MQTTDumpCommunication == 1)
+    // Because all projects are different, it's hard to give a generic method for dumping elements.
+    // So we end up with only limited dependencies:
+    // - a string class that concatenate with operator +=
+    // - the string class has MQTTStringGetData(MQTTString instance) method returning a pointer to the string array
+    // - the string class has MQTTStringGetLength(MQTTString instance) method returning the array size of the string
+    // - a hexadecimal dumping method
+    // - a printf-like formatting function
+ 
+    // Feel free to define the string class and method to use beforehand if you want to use your own.
+    // If none provided, we use's std::string class (or ClassPath's FastString depending on the environment)
+    #ifndef MQTTStringPrintf
+      static MQTTString MQTTStringPrintf(const char * format, ...)
+      {
+          va_list argp;
+          va_start(argp, format);
+          char buf[512];
+          // We use vasprintf extension to avoid dual parsing of the format string to find out the required length
+          int err = vsnprintf(buf, sizeof(buf), format, argp);
+          va_end(argp);
+          if (err <= 0) return MQTTString();
+          if (err >= (int)sizeof(buf)) err = (int)(sizeof(buf) - 1);
+          buf[err] = 0;
+          return MQTTString(buf, (size_t)err);
+      }
+    #endif
+    #ifndef MQTTHexDump
+      static void MQTTHexDump(MQTTString & out, const uint8* bytes, const uint32 length)
+      {
+          for (uint32 i = 0; i < length; i++)
+              out += MQTTStringPrintf("%02X", bytes[i]);
+      }
+    #endif
 #endif
 
 /** All network protocol specific structure or enumerations are declared here */
@@ -80,15 +81,24 @@ namespace Protocol
                     @param buffer       A pointer to an allocated buffer
                     @param bufLength    The length of the buffer in bytes
                     @return The number of bytes read from the buffer, or a LocalError upon error (use isError() to test for it) */
-                virtual uint32 readFrom(const uint8 * buffer, uint32 bufLength) = 0;
+                virtual uint32 readFrom(const uint8 * buffer, uint32 bufLength) 
+#if MQTTClientOnlyImplementation == 1
+                {
+                    return BadData;
+                }
+#else
+                = 0;
+#endif
 
 #if MQTTDumpCommunication == 1
                 /** Dump the serializable to the given string */
                 virtual void dump(MQTTString & out, const int indent = 0) = 0;
 #endif 
 
+#if MQTTAvoidValidation != 1
                 /** Check if this object is correct after deserialization */
                 virtual bool check() const { return true; }
+#endif
                 /** Required destructor */
                 virtual ~Serializable() {}
             };
@@ -102,11 +112,10 @@ namespace Protocol
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*s%s\n", indent, "", "<none>"); }
 #endif
-                bool check() const { return true; }
             };
             
             /** Invalid serialization used as an escape path */
-            struct InvalidData : public Serializable
+            struct Hidden InvalidData : public Serializable
             {
                 uint32 getSize() const { return 0; }
                 uint32 copyInto(uint8 *) const { return 0; }
@@ -114,7 +123,9 @@ namespace Protocol
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*s%s\n", indent, "", "<invalid>"); }
 #endif
+#if MQTTAvoidValidation != 1
                 bool check() const { return false; }
+#endif
             };
             
             /** A serializable with suicide characteristics 
@@ -129,37 +140,7 @@ namespace Protocol
                 virtual void suicide() { delete this; }
             };
 
-            /** The serialization of memory mapped structures.
-                They must have a fromNetwork / toNetwork function.
-                It's using CRTP here to inject Serializable-like interface to a basic memory-mapped structure.
-                We don't use any virtual table here, so when the compiler is instructed to pack-fit the structure,
-                it (does/should) remove any virtual table here, thus keeping the struct size as if this wasn't
-                deriving from this struct.
-             
-                This is called empty base optimization and it's required for StandardLayoutType in C++ standard,
-                so we make use of this here. */
-            template <typename T>
-            struct MemoryMapped
-            {
-                uint32 getSize() const { return sizeof(T); }
-                uint32 copyInto(uint8 * buffer) const
-                {
-                    const_cast<T*>(static_cast<const T*>(this))->toNetwork();
-                    memcpy(buffer, static_cast<const T*>(this), sizeof(T));
-                    const_cast<T*>(static_cast<const T*>(this))->fromNetwork();
-                    
-                    return sizeof(T);
-                }
-                uint32 readFrom(const uint8 * buffer, uint32 bufLength)
-                {
-                    if (bufLength < sizeof(T)) return NotEnoughData;
-                    memcpy(static_cast<T*>(this), buffer, sizeof(T));
-                    static_cast<T*>(this)->fromNetwork();
-                    return sizeof(T);
-                }
-            };
             
-
             /** The visitor that'll be called with the relevant value */
             struct MemMappedVisitor
             {
@@ -261,13 +242,11 @@ namespace Protocol
                 char   data[];
                 
                 /** Call this method to read the structure when it's casted from the network buffer */
-                void fromNetwork() { length = ntohs(length); }
-                /** Call this method before sending the structure to the network */
-                void toNetwork()   { length = htons(length); }
+                void swapNetwork() { length = BigEndian(length); }
             };
             
             /** A string that's memory managed itself */
-            struct DynamicString : public Serializable
+            struct DynamicString Final : public Serializable
             {
                 /** The string length in bytes */
                 uint16      length;
@@ -294,8 +273,10 @@ namespace Protocol
                     memcpy(data, buffer+2, length);
                     return (uint32)length+2;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if the value is correct */
                 bool check() const { return data ? length : length == 0; }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sStr (%d bytes): %.*s\n", (int)indent, "", (int)length, length, data); }
 #endif
@@ -304,12 +285,10 @@ namespace Protocol
                 DynamicString() : length(0), data(0) {}
                 /** Construct from a text */
                 DynamicString(const char * text) : length(text ? strlen(text) : 0), data((char*)Platform::malloc(length)) { memcpy(data, text, length); }
-#if (MQTTDumpCommunication == 1)
                 /** Construct from a FastString */
                 DynamicString(const MQTTString & text) : length(MQTTStringGetLength(text)), data((char*)Platform::malloc(length)) { memcpy(data, MQTTStringGetData(text), length); }
                 /** Construct from a FastString */
                 DynamicString(const MQTTROString & text) : length(MQTTStringGetLength(text)), data((char*)Platform::malloc(length)) { memcpy(data, MQTTStringGetData(text), length); }
-#endif
                 /** Copy constructor */
                 DynamicString(const DynamicString & other) : length(other.length), data((char*)Platform::malloc(length)) { memcpy(data, other.data, length); }
 #if HasCPlusPlus11 == 1
@@ -318,15 +297,12 @@ namespace Protocol
 #endif
                 /** Destructor */
                 ~DynamicString() { Platform::free(data); length = 0; }
-
-#if (MQTTDumpCommunication == 1)
                 /** Convert to a ReadOnlyString */
                 operator MQTTROString() const { return MQTTROString(data, length); }
                 /** Comparison operator */
                 bool operator != (const MQTTROString & other) const { return length != MQTTStringGetLength(other) || memcmp(data, MQTTStringGetData(other), length); }
                 /** Comparison operator */
                 bool operator == (const MQTTROString & other) const { return length == MQTTStringGetLength(other) && memcmp(data, MQTTStringGetData(other), length) == 0; }
-#endif                
                 /** Copy operator */
                 DynamicString & operator = (const DynamicString & other) { if (this != &other) { this->~DynamicString(); length = other.length; data = (char*)Platform::malloc(length); memcpy(data, other.data, length); } return *this; }
                 /** Copy operator */
@@ -335,7 +311,7 @@ namespace Protocol
             };
             
             /** A dynamic string pair */
-            struct DynamicStringPair : public Serializable
+            struct DynamicStringPair Final : public Serializable
             {
                 /** The key used for the pair */
                 DynamicString key;
@@ -361,8 +337,10 @@ namespace Protocol
                     if (isError(s)) return s;
                     return s+o;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if the value is correct */
                 bool check() const { return key.check() && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sKV:\n", (int)indent, ""); key.dump(out, indent + 2); value.dump(out, indent + 2); }
 #endif
@@ -385,13 +363,11 @@ namespace Protocol
                 uint8  data[];
                 
                 /** Call this method to read the structure when it's casted from the network buffer */
-                void fromNetwork() { length = ntohs(length); }
-                /** Call this method before sending the structure to the network */
-                void toNetwork()   { length = htons(length); }
+                void swapNetwork() { length = BigEndian(length); }
             };
             
             /** A dynamic binary data, with self managed memory */
-            struct DynamicBinaryData : public Serializable
+            struct DynamicBinaryData Final : public Serializable
             {
                 /** The string length in bytes */
                 uint16      length;
@@ -418,8 +394,10 @@ namespace Protocol
                     memcpy(data, buffer+2, length);
                     return (uint32)length + 2;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if the value is correct */
                 bool check() const { return data ? length : length == 0; }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sBin (%d bytes):", (int)indent, "", (int)length); MQTTHexDump(out, data, length); out += "\n"; }
 #endif
@@ -441,7 +419,7 @@ namespace Protocol
             /** A read only dynamic string view. 
                 This is used to avoid copying a string buffer when only a pointer is required. 
                 This string can be mutated to many buffer but no modification is done to the underlying array of chars */
-            struct DynamicStringView : public Serializable, public SerializableVisitor<DynamicStringView>
+            struct DynamicStringView Final : public Serializable, public SerializableVisitor<DynamicStringView>
             {
                 /** The string length in bytes */
                 uint16          length;
@@ -470,10 +448,10 @@ namespace Protocol
                     return (uint32)length + 2;
                 }
 
-
+#if MQTTAvoidValidation != 1
                 /** Check if the value is correct */
                 bool check() const { return data ? length : length == 0; }
-
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sStr (%d bytes): %.*s\n", (int)indent, "", (int)length, length, data); }
 #endif
@@ -507,7 +485,7 @@ namespace Protocol
             /** A dynamic string pair view.
                 This is used to avoid copying a string buffer when only a pointer is required. 
                 This string can be mutated to many buffer but no modification is done to the underlying array of chars */
-            struct DynamicStringPairView : public Serializable, public SerializableVisitor<DynamicStringPairView>
+            struct DynamicStringPairView Final : public Serializable, public SerializableVisitor<DynamicStringPairView>
             {
                 /** The key used for the pair */
                 DynamicStringView key;
@@ -533,8 +511,10 @@ namespace Protocol
                     if (isError(s)) return s;
                     return s+o;
                 }
+#if MQTTAvoidValidation != 1                
                 /** Check if the value is correct */
                 bool check() const { return key.check() && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sKV:\n", (int)indent, ""); key.dump(out, indent + 2); value.dump(out, indent + 2); }
 #endif
@@ -551,7 +531,7 @@ namespace Protocol
             
             /** A read only dynamic dynamic binary data, without self managed memory. 
                 This is used to avoid copying a binary data buffer when only a pointer is required. */
-            struct DynamicBinDataView : public Serializable, public SerializableVisitor<DynamicBinDataView>
+            struct DynamicBinDataView Final : public Serializable, public SerializableVisitor<DynamicBinDataView>
             {
                 /** The string length in bytes */
                 uint16             length;
@@ -579,8 +559,10 @@ namespace Protocol
                     data = &buffer[2];
                     return (uint32)length + 2;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if the value is correct */
                 bool check() const { return data ? length : length == 0; }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sBin (%d bytes):", (int)indent, "", (int)length); MQTTHexDump(out, data, length); out += "\n"; }
 #endif
@@ -603,7 +585,7 @@ namespace Protocol
 
             /** The variable byte integer encoding (section 1.5.5).
                 It's always stored encoded as a network version */
-            struct VBInt : public Serializable
+            struct VBInt Final : public Serializable
             {
                 enum 
                 { 
@@ -662,10 +644,13 @@ namespace Protocol
                 }
                 
                 /** Check if the value is correct */
-                bool check() const
+                inline bool checkImpl() const
                 {
                     return size > 0 && size < 5 && (value[size-1] & 0x80) == 0;
                 }
+#if MQTTAvoidValidation != 1
+                bool check() const { return checkImpl(); }
+#endif
                 /** For consistancy with the other structures, we have a getSize() method that gives the number of bytes requires to serialize this object */
                 uint32 getSize() const { return size; }
                 
@@ -698,7 +683,7 @@ namespace Protocol
 
             /** The variable byte integer encoding (section 1.5.5).
                 It's always stored encoded as a network version */
-            struct MappedVBInt : public PODVisitor<uint32>
+            struct MappedVBInt Final : public PODVisitor<uint32>
             {
                 /** Get the value from this mapped variable byte integer
                     @param buffer       A pointer to the buffer to read from
@@ -769,6 +754,35 @@ namespace Protocol
             // Bring shared types here
             using namespace Protocol::MQTT::Common;
             
+            /** A generic type erasure class to minimize different code dealing with types */
+            struct Hidden GenericTypeBase
+            {
+                virtual uint32 typeSize() const = 0;
+                /** From network and To network are supposed to be called in succession 
+                    leading to the same state so they are both const even if individually, they modify the value */ 
+                virtual void swapNetwork() const = 0;
+                virtual void * raw() = 0;
+#if MQTTAvoidValidation != 1                
+                bool check() const { return true; }
+#endif
+                ~GenericTypeBase() {}
+            };
+            /** A globally used GenericType that's there to minimize the number of generic code 
+                that needs to be specialized by the compiler */
+            template <typename T>
+            struct Hidden GenericType : public GenericTypeBase
+            {
+                T value;
+                uint32 typeSize() const { return sizeof(T); }
+                void swapNetwork() const { const_cast<T&>(value) = BigEndian(value); }
+                void * raw() { return &value; }
+                operator T & () { return value; }
+                GenericType & operator = (const T v) { value = v; return *this; }
+                GenericType(T v = 0) : value(v) {}
+            };
+
+
+
             /** The reason codes */
             enum ReasonCodes
             {
@@ -865,31 +879,36 @@ namespace Protocol
 #endif
             };
             
+            struct FixedHeaderBase
+            {
+                uint8 typeAndFlags;
+                virtual ControlPacketType   getType() const { return (ControlPacketType)(typeAndFlags >> 4); }
+                virtual uint8               getFlags() const { return typeAndFlags & 0xF; }
+#if MQTTAvoidValidation != 1
+                virtual bool check() const { return true; }
+#endif
+#if MQTTDumpCommunication == 1
+                virtual void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sHeader: (type %s, no flags)\n", (int)indent, "", getControlPacketName(getType())); }
+#endif    
+
+                FixedHeaderBase(const ControlPacketType type, const uint8 flags) : typeAndFlags(((uint8)type) << 4 | (flags & 0xF)) {}
+                virtual ~FixedHeaderBase() {} 
+            };
+
             /** The common format for the fixed header type */
             template <ControlPacketType type, uint8 flags>
-            struct FixedHeaderType
+            struct Hidden FixedHeaderType Final : public FixedHeaderBase
             {
-                const uint8 typeAndFlags;
-                ControlPacketType   getType() const { return type; }
-                uint8               getFlags() const { return flags; }
-                bool                check() const { return (typeAndFlags & 0xF) == flags; }
+                bool                check() const { return getFlags() == flags; }
                 static bool         check(const uint8 flag) { return flag == flags; }
-#if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sHeader: (type %s, no flags)\n", (int)indent, "", getControlPacketName(type)); }
-#endif
-                
-                FixedHeaderType() : typeAndFlags(((uint8)type << 4) | flags) {}
+
+                FixedHeaderType() : FixedHeaderBase(type, flags) {}
             };
             
             /** The only header where flags have a meaning is for Publish operation */
             template <>
-            struct FixedHeaderType<PUBLISH, 0>
-            {
-                uint8 typeAndFlags;
-                
-                ControlPacketType getType() const { return PUBLISH; }
-                
-                uint8 getFlags() const { return typeAndFlags & 0xF; }
+            struct Hidden FixedHeaderType<PUBLISH, 0> Final : public FixedHeaderBase
+            {                
                 bool isDup()     const { return typeAndFlags & 0x8; }
                 bool isRetain()  const { return typeAndFlags & 0x1; }
                 uint8 getQoS()   const { return (typeAndFlags & 0x6) >> 1; }
@@ -898,15 +917,14 @@ namespace Protocol
                 void setRetain(const bool e)    { typeAndFlags = (typeAndFlags & ~0x1) | (e ? 1 : 0); }
                 void setQoS(const uint8 e)      { typeAndFlags = (typeAndFlags & ~0x6) | (e < 3 ? (e << 1) : 0); }
 
-                bool                check() const { return true; }
                 static bool         check(const uint8 flag) { return true; }
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sHeader: (type PUBLISH, retain %d, QoS %d, dup %d)\n", (int)indent, "", isRetain(), getQoS(), isDup()); }
 #endif
 
 
-                FixedHeaderType(const uint8 flags = 0) : typeAndFlags(((uint8)PUBLISH << 4) | flags) {}
-                FixedHeaderType(const bool dup, const uint8 QoS, const bool retain) : typeAndFlags(((uint8)PUBLISH << 4) | (dup ? 8 : 0) | (retain ? 1 : 0) | (QoS < 3 ? (QoS << 1) : 0)) {}
+                FixedHeaderType(const uint8 flags = 0) : FixedHeaderBase(PUBLISH, flags) {}
+                FixedHeaderType(const bool dup, const uint8 QoS, const bool retain) : FixedHeaderBase(PUBLISH, (dup ? 8 : 0) | (retain ? 1 : 0) | (QoS < 3 ? (QoS << 1) : 0)) {}
             };
             
             /** The possible header types */
@@ -985,7 +1003,7 @@ namespace Protocol
             namespace PrivateRegistry
             {
                 enum { PropertiesCount = 27 };
-                static const uint8 invPropertyMap[MaxUsedPropertyType] =
+                static const uint8 Hidden invPropertyMap[MaxUsedPropertyType] =
                 {
                     PropertiesCount, // BadProperty,  
                      0, // PayloadFormat           ,
@@ -1079,11 +1097,15 @@ namespace Protocol
 
 
             template <typename T>
-            struct MMProp
+            struct Hidden MMProp
             {
                 static MemMappedVisitor & getInstance()
                 {
+#if (WantThreadLocalStorage == 1)
+                    static TLSDecl T visitor; return visitor;
+#else
                     static T visitor; return visitor;
+#endif
                 }
             };
 
@@ -1144,19 +1166,15 @@ namespace Protocol
                 }
             };
 
-            /** The link between the property type and its possible value follow section 2.2.2.2 */
-            template <typename T>
-            struct Property : public PropertyBase
+            struct PropertyBaseImpl : public PropertyBase
             {
-                /** The property value, depends on the type */
-                T           value;
-                
+                GenericTypeBase & value;
                 /** This give the size required for serializing this property header in bytes */
-                uint32 getSize() const { return sizeof(type) + sizeof(value); }
+                uint32 getSize() const { return sizeof(type) + value.typeSize(); }
                 /** Copy the value into the given buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 1 byte long, and at worst very large (use getSize to figure out the required size).
                     @return The number of bytes used in the buffer */
-                uint32 copyInto(uint8 * buffer) const { buffer[0] = type; T v = BigEndian(value); memcpy(buffer+1, &v, sizeof(value)); return sizeof(value) + 1; }
+                uint32 copyInto(uint8 * buffer) const { buffer[0] = type; value.swapNetwork(); memcpy(buffer+1, value.raw(), value.typeSize()); value.swapNetwork(); return value.typeSize() + 1; }
                 /** Read the value from a buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 1 byte long
                     @return The number of bytes read from the buffer, or BadData upon error */
@@ -1164,41 +1182,54 @@ namespace Protocol
                 {
                     if ((buffer[0] & 0x80) || buffer[0] != type) return BadData;
                     if (bufLength < sizeof(value)+1) return NotEnoughData;
-                    memcpy(&value, buffer+1, sizeof(value));
-                    value = BigEndian(value);
-                    return sizeof(value) + 1;
+                    memcpy(value.raw(), buffer+1, value.typeSize());
+                    value.swapNetwork();
+                    return value.typeSize() + 1;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80; }
+#endif
+                /** The default constructor */
+                PropertyBaseImpl(const PropertyType type, GenericTypeBase & v) : PropertyBase(type), value(v) {}
+            };
+
+            /** The link between the property type and its possible value follow section 2.2.2.2 */
+            template <typename T>
+            struct Property : public PropertyBaseImpl
+            {
+                /** The property value, depends on the type */
+                GenericType<T>           value;
+
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
                     out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
-                    out += MQTTStringPrintf("%*s", indent+2, ""); out += value; out += "\n"; 
+                    out += MQTTStringPrintf("%*s", indent+2, ""); out += (T)value; out += "\n"; 
                 }
 #endif
 
                 /** Clone this property */
-                PropertyBase * clone() const { return new Property((PropertyType)type, value); }
+                PropertyBase * clone() const { return new Property((PropertyType)type, value.value); }
 
                 /** The default constructor */
-                Property(const PropertyType type, T value = 0) : PropertyBase(type), value(value) {}
+                Property(const PropertyType type, T v = 0) : PropertyBaseImpl(type, value), value(v) {}
             };
 
             /** A property that's allocated on the stack. It never suicide itself. */
             template <typename T>
-            struct StackProperty : public Property<T>
+            struct StackProperty Final : public Property<T>
             {
                 /** The default constructor */
                 StackProperty(const PropertyType type, T value = 0) : Property<T>(type, value) {}
                 /** Clone this property by a non stack based property */
-                PropertyBase * clone() const { return new Property<T>((PropertyType)this->type, this->value); }
+                PropertyBase * clone() const { return new Property<T>((PropertyType)this->type, this->value.value); }
                 /** Don't ever suicide! */
                 void suicide() {}
             };
             
             template<>
-            struct Property<DynamicString> : public PropertyBase
+            struct Property<DynamicString> Final : public PropertyBase
             {
                 /** The property value, depends on the type */
                 DynamicString       value;
@@ -1220,8 +1251,10 @@ namespace Protocol
                     if (isError(o)) return o;
                     return o+1;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1237,7 +1270,7 @@ namespace Protocol
             };
 
             template<>
-            struct Property<DynamicBinaryData> : public PropertyBase
+            struct Property<DynamicBinaryData> Final : public PropertyBase
             {
                 /** The property value, depends on the type */
                 DynamicBinaryData   value;
@@ -1259,8 +1292,10 @@ namespace Protocol
                     if (isError(o)) return o;
                     return o+1;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1277,7 +1312,7 @@ namespace Protocol
             };
 
             template<>
-            struct Property<DynamicStringPair> : public PropertyBase
+            struct Property<DynamicStringPair> Final : public PropertyBase
             {
                 /** The property value, depends on the type */
                 DynamicStringPair   value;
@@ -1299,8 +1334,10 @@ namespace Protocol
                     if (isError(o)) return o;
                     return o+1;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1317,7 +1354,7 @@ namespace Protocol
 
 
             template<>
-            struct Property<DynamicStringView> : public PropertyBase
+            struct Property<DynamicStringView> Final : public PropertyBase
             {
                 /** The property value, depends on the type */
                 DynamicStringView       value;
@@ -1339,8 +1376,10 @@ namespace Protocol
                     if (isError(o)) return o;
                     return o+1;
                 }
+#if MQTTAvoidValidation != 1                
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1356,7 +1395,7 @@ namespace Protocol
             };
 
             template<>
-            struct Property<DynamicBinDataView> : public PropertyBase
+            struct Property<DynamicBinDataView> Final : public PropertyBase
             {
                 /** The property value, depends on the type */
                 DynamicBinDataView   value;
@@ -1378,8 +1417,10 @@ namespace Protocol
                     if (isError(o)) return o;
                     return o+1;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1394,16 +1435,10 @@ namespace Protocol
             };
 
             template<>
-            class Property<DynamicStringPairView> : public PropertyBase
+            struct Property<DynamicStringPairView> Final : public PropertyBase
             {
                 /** The property value, depends on the type */
                 DynamicStringPairView   value;
-
-            public:
-                /** Get the value as dynamic string */
-                const DynamicStringPairView & getValue() const { return value; }
-                /** Set the value */
-                void setValue(const DynamicStringPairView & v) { value = v; }
 
                 /** This give the size required for serializing this property header in bytes */
                 uint32 getSize() const { return sizeof(type) + value.getSize(); }
@@ -1422,8 +1457,10 @@ namespace Protocol
                     if (isError(o)) return o;
                     return o+1;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1431,14 +1468,15 @@ namespace Protocol
                     value.dump(out, indent + 2); 
                 }
 #endif
-
+                /** Clone this property */
+                PropertyBase * clone() const { return new Property((PropertyType)type, value); }
                 /** The default constructor */
                 Property(const PropertyType type, const DynamicStringPairView value) : PropertyBase(type), value(value) {}
             };
 
             
             template<>
-            struct Property<VBInt> : public PropertyBase
+            struct Property<VBInt> Final : public PropertyBase
             {
                 /** The property value, depends on the type */
                 VBInt               value;
@@ -1460,8 +1498,10 @@ namespace Protocol
                     if (isError(o)) return o;
                     return o+1;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return type < 0x80 && value.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1510,7 +1550,7 @@ namespace Protocol
 
 
             template <PropertyType type, typename T>
-            struct TypedProperty : public Property<T>
+            struct TypedProperty
             {
                 enum { Type = type };
                 static PropertyBase * allocateProp() { return new Property<T>(type, T()) ; }
@@ -1602,8 +1642,10 @@ namespace Protocol
                 void append(PropertyBase * prop) { PropertyListNode * u = this; while(u->next) u = u->next; u->next = new PropertyListNode(prop); }
                 /** Count the number of element in this list */
                 uint32 count() const { const PropertyListNode * u = this; uint32 c = 1; while(u->next) { u = u->next; c++; } return c; }
+#if MQTTAvoidValidation != 1
                 /** Check all properties in this list are valid */
                 bool check() const { const PropertyListNode * u = this; while (u->next) { if (!u->property->check()) return false; u = u->next; } return true; }
+#endif
                 /** Clone a single node here (not the complete list) */
                 PropertyListNode * clone() const { return new PropertyListNode(property->clone()); }
                 
@@ -1658,8 +1700,16 @@ namespace Protocol
                 return (allowedProperties[(int)type - 1] & (1<<(uint8)ctype)) > 0;
             }
 
+            /** Additional method required for properties */
+            struct SerializableProperties : public Serializable
+            {
+#if MQTTAvoidValidation != 1
+                virtual bool checkPropertiesFor(const ControlPacketType type) const = 0;
+#endif
+            };
+
             /** The property structure (section 2.2.2) */
-            struct Properties : public Serializable
+            struct Properties Final : public SerializableProperties
             {
                 /** The properties length (can be 0) (this only counts the following members) */
                 VBInt length;
@@ -1715,8 +1765,10 @@ namespace Protocol
                     }
                     return o;
                 }
+#if MQTTAvoidValidation != 1                
                 /** Check if this property is valid */
                 bool check() const { return length.check() && head ? head->check() : true; }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1729,6 +1781,7 @@ namespace Protocol
                     }
                 }
 #endif
+#if MQTTAvoidValidation != 1
                 /** Check if the properties are compatible for the given packet type */
                 bool checkPropertiesFor(const ControlPacketType type) const
                 {
@@ -1737,14 +1790,14 @@ namespace Protocol
                     while (u) { if (!isAllowedProperty((PropertyType)u->property->type, type)) return false; u = u->next; }
                     return true;
                 }
-
+#endif
                 /** Append a property to this list
                     @param property     A pointer to a new allocated property to append to this list that's owned
                     @return true upon successful append, false upon error (the pointer is not owned in that case) */
                 bool append(PropertyBase * property)
                 {
                     VBInt l((uint32)length + property->getSize());
-                    if (!l.check()) return false;
+                    if (!l.checkImpl()) return false;
                     length = l;
                     if (head) head->append(property);
                     else head = new PropertyListNode(property);
@@ -1818,7 +1871,7 @@ namespace Protocol
                         visitor = v.getProperty(type, offset);
                     }
                 @endcode */
-            struct PropertiesView : public Serializable
+            struct PropertiesView Final : public SerializableProperties
             {
                 /** The properties length (can be 0) (this only counts the following members) */
                 VBInt length;
@@ -1866,8 +1919,10 @@ namespace Protocol
                     buffer = _buffer + o;
                     return o + (uint32)length;
                 }
+#if MQTTAvoidValidation != 1                
                 /** Check if this property is valid */
                 bool check() const { return length.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -1881,10 +1936,10 @@ namespace Protocol
                     }
                 }
 #endif                
+#if MQTTAvoidValidation != 1
                 /** Check if the properties are compatible for the given packet type */
                 bool checkPropertiesFor(const ControlPacketType type) const
                 {
-#if MQTTAvoidValidation != 1
                     if (!check()) return false;
                     uint32 o = 0;
                     PropertyType t = BadProperty; 
@@ -1892,9 +1947,9 @@ namespace Protocol
                     {
                         if (!isAllowedProperty(t, type)) return false;
                     }
-#endif
                     return true;
                 }                
+#endif
                 
                 /** Build an empty property list */
                 PropertiesView() : buffer(0) {}
@@ -1976,6 +2031,7 @@ namespace Protocol
                     if (next) o += next->copyInto(buffer+1);
                     return o;
                 }
+#if MQTTClientOnlyImplementation != 1
                 /** Read the value from a buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 1 byte long
                     @return The number of bytes read from the buffer, or 0xFF upon error */
@@ -1997,8 +2053,11 @@ namespace Protocol
                     }
                     return o;
                 }
+#endif
+#if MQTTAvoidValidation != 1                
                 /** Check if this property is valid */
                 bool check() const { return reserved == 0 && retainAsPublished != 3 && QoS != 3 && topic.check() && (next ? next->check() : true); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -2022,7 +2081,7 @@ namespace Protocol
             };
 
             /** A stack based subscribe topic */
-            struct StackSubscribeTopic : public SubscribeTopic
+            struct StackSubscribeTopic Final : public SubscribeTopic
             {
                 /** Make sure to call the next item as it might be heap allocated */
                 void suicide() { if (next) next->suicide(); }
@@ -2052,6 +2111,7 @@ namespace Protocol
                     if (next) o += next->copyInto(buffer);
                     return o;
                 }
+#if MQTTClientOnlyImplementation != 1
                 /** Read the value from a buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 1 byte long
                     @return The number of bytes read from the buffer, or 0xFF upon error */
@@ -2071,8 +2131,11 @@ namespace Protocol
                     }
                     return o;
                 }
+#endif
+#if MQTTAvoidValidation != 1                
                 /** Check if this property is valid */
                 bool check() const { return topic.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -2096,7 +2159,7 @@ namespace Protocol
             };
 
             /** A stack based unsubscribe topic */
-            struct StackUnsubscribeTopic : public UnsubscribeTopic
+            struct StackUnsubscribeTopic Final : public UnsubscribeTopic
             {
                 /** Make sure to call the next item as it might be heap allocated */
                 void suicide() { if (next) next->suicide(); }
@@ -2128,14 +2191,19 @@ namespace Protocol
                 inline void setRemainingLength(const uint32) {}
             };
 
+            struct FixedFieldGeneric;
             /** The payload for some packet types. By default, it's empty. */
-            template <ControlPacketType type>
-            struct Payload : public EmptySerializable
+            struct SerializablePayload : public EmptySerializable
             {
                 /** Set the flags marked in the fixed field header */
-                inline void setFlags(FixedField<type> &) {}
+                virtual void setFlags(const FixedFieldGeneric &) {}
                 /** Set the expected packet size (this is useful for packet whose payload is application defined) */
-                inline void setExpectedPacketSize(uint32) {}
+                virtual void setExpectedPacketSize(uint32) {}
+            };
+
+            template <ControlPacketType type>
+            struct Payload : public SerializablePayload
+            {
             };
             
             /** Declare all the expected control packet type and format */
@@ -2157,8 +2225,7 @@ namespace Protocol
 
 
 #pragma pack(push, 1)
-            /** The fixed field for CONNECT packet */
-            template <> struct FixedField<CONNECT> : public MemoryMapped< FixedField<CONNECT> >
+            struct ConnectHeaderImpl
             {
                 /** The protocol name: "\0\4MQTT" */
                 uint8 protocolName[6];
@@ -2205,126 +2272,204 @@ namespace Protocol
                     };
                 };
                 /** The keep alive time in seconds */
-                uint16 keepAlive;
-                /** Expected to/from network code */
-                void toNetwork() { keepAlive = htons(keepAlive); }
-                void fromNetwork() { keepAlive = ntohs(keepAlive); }
-                
-                /** Check if this header is correct */
+                mutable uint16 keepAlive;
+#if MQTTAvoidValidation != 1
                 bool check() const { return reserved == 0 && willQoS < 3 && memcmp(protocolName, expectedProtocolName(), sizeof(protocolName)) == 0; }
+#endif
+                /** Get the expected protocol name */
+                static const uint8 * expectedProtocolName() { static uint8 protocolName[6] = { 0, 4, 'M', 'Q', 'T', 'T' }; return protocolName; }
+                /** The default constructor */
+                ConnectHeaderImpl() : protocolVersion(5), flags(0), keepAlive(0) { memcpy(protocolName, expectedProtocolName(), sizeof(protocolName));  }
+            };
+#pragma pack(pop)
+
+
+            struct FixedFieldGeneric : public Serializable
+            {
+                GenericTypeBase & value;
+
+                uint32 getSize() const { return value.typeSize(); }
+                uint32 copyInto(uint8 * buffer) const
+                {
+                    value.swapNetwork();
+                    memcpy(buffer, value.raw(), getSize());
+                    value.swapNetwork();
+                    return value.typeSize();
+                }
+                uint32 readFrom(const uint8 * buffer, uint32 bufLength)
+                {
+                    if (bufLength < value.typeSize()) return NotEnoughData;
+                    memcpy(value.raw(), buffer, value.typeSize());
+                    value.swapNetwork();
+                    return value.typeSize();
+                }
+#if MQTTAvoidValidation != 1
+                /** Check if this header is correct */
+                bool check() const { return value.check(); }
+#endif
+                /** No action from the packet header to the behaviour here */
+                virtual void setFlags(const uint8 &) {}
+                /** Some packets are using shortcut length, so we need to know about this */
+                virtual void setRemainingLength(const uint32 length) {}
+
+                FixedFieldGeneric(GenericTypeBase & v) : value(v) {}
+            };
+
+            template<>
+            struct Hidden GenericType<ConnectHeaderImpl> Final : public GenericTypeBase
+            {
+                ConnectHeaderImpl & value;
+                uint32 typeSize() const { return sizeof(value); }
+                void swapNetwork() const { const_cast<ConnectHeaderImpl&>(value).keepAlive = BigEndian(value.keepAlive); }
+                void * raw() { return &value; }
+                operator ConnectHeaderImpl& () { return value; } 
+                GenericType<ConnectHeaderImpl> & operator = (const ConnectHeaderImpl & o) { value = o; return *this; }
+#if MQTTAvoidValidation != 1                
+                bool check() const { return value.check(); }
+#endif
+                GenericType<ConnectHeaderImpl>(ConnectHeaderImpl & v) : value(v) {}
+            };
+
+            /** The fixed field for CONNECT packet */
+            template <> class FixedField<CONNECT> Final : public ConnectHeaderImpl, public FixedFieldGeneric
+            {
+                GenericType<ConnectHeaderImpl> _v;
+            public:
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
                     out += MQTTStringPrintf("%*sCONNECT packet (clean %d, will %d, willQoS %d, willRetain %d, password %d, username %d, keepAlive: %d)\n", (int)indent, "", cleanStart, willFlag, willQoS, willRetain, passwordFlag, usernameFlag, keepAlive); 
                 }
 #endif
-
-                /** No action from the packet header to the behaviour here */
-                inline void setFlags(const uint8 &) {}
-                /** Some packets are using shortcut length, so we need to know about this */
-                inline void setRemainingLength(const uint32 length) {}
-                /** Get the expected protocol name */
-                static const uint8 * expectedProtocolName() { static uint8 protocolName[6] = { 0, 4, 'M', 'Q', 'T', 'T' }; return protocolName; }
-
                 /** The default constructor */
-                FixedField<CONNECT>() : protocolVersion(5), flags(0), keepAlive(0) { memcpy(protocolName, expectedProtocolName(), sizeof(protocolName));  }
+                FixedField<CONNECT>() : FixedFieldGeneric(_v), _v(*this) {}
             };
             
-            /** The fixed field for the CONNACK packet */
-            template <> struct FixedField<CONNACK> : public MemoryMapped< FixedField<CONNACK> >
+#pragma pack(push, 1)
+            struct ConnACKHeaderImpl
             {
                 /** The acknowledge flag */
                 uint8 acknowledgeFlag;
                 /** The connect reason */
                 uint8 reasonCode;
-                /** Expected to/from network code */
-                inline void toNetwork() { }
-                inline void fromNetwork() { }
-                
-                /** Check if this header is correct */
+
+#if MQTTAvoidValidation != 1
                 bool check() const { return (acknowledgeFlag & 0xFE) == 0; }
+#endif
+
+                ConnACKHeaderImpl() : acknowledgeFlag(0), reasonCode(0) {}
+            };
+#pragma pack(pop)
+
+            template<> struct Hidden GenericType<ConnACKHeaderImpl> Final : public GenericTypeBase
+            {
+                ConnACKHeaderImpl & value;
+                uint32 typeSize() const { return sizeof(value); }
+                void swapNetwork() const {  }
+                void * raw() { return &value; }
+                GenericType<ConnACKHeaderImpl> & operator = (const ConnACKHeaderImpl & o) { value = o; return *this; }
+                operator ConnACKHeaderImpl& () { return value; } 
+                GenericType<ConnACKHeaderImpl>(ConnACKHeaderImpl & v) : value(v) {}
+            };
+
+
+            
+            /** The fixed field for the CONNACK packet */
+            template <> class FixedField<CONNACK> Final : public ConnACKHeaderImpl, public FixedFieldGeneric
+            {
+                GenericType<ConnACKHeaderImpl> _v;
+            public:
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sCONNACK packet (ack %u, reason %u)\n", (int)indent, "", acknowledgeFlag, reasonCode); }
 #endif
-
-                /** No action from the packet header to the behaviour here */
-                inline void setFlags(const uint8 &) {}
-                /** Some packets are using shortcut length, so we need to know about this */
-                inline void setRemainingLength(const uint32 length) {}
-
                 /** The default constructor */
-                FixedField<CONNACK>() : acknowledgeFlag(0), reasonCode(0) { }
-            };
+                FixedField<CONNACK>() : FixedFieldGeneric(_v), _v(*this) {}
+            };                
 
-            /** The fixed field for the packet with a packet ID */
-            struct FixedFieldWithID : public Serializable
+            /** Some packets, like DISCONNECT, CONNACK, ... can be shorter and in that case, return a Shortcut return value */
+            struct FixedFieldWithRemainingLength : public FixedFieldGeneric
             {
-                /** The packet identifier */
-                uint16 packetID;
-                
-                /** Check if this header is correct */
-                bool check() const { return true; }
-                /** No action from the packet header to the behaviour here */
-                inline void setFlags(const uint8 &) {}
                 /** Some packets are using shortcut length, so we need to know about this */
-                inline void setRemainingLength(const uint32 length) { remLength = length; }
-
-                uint32 getSize() const { return 2; }
-                uint32 copyInto(uint8 * buffer) const
-                {
-                    uint16 p = BigEndian(packetID);
-                    memcpy(buffer, &p, sizeof(p));
-                    return 2;
-                }
+                void setRemainingLength(const uint32 length) { remLength = length; }
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
                 {
-                    if (bufLength < 2) return NotEnoughData;
-                    memcpy(&packetID, buffer, sizeof(packetID)); packetID = BigEndian(packetID);
-                    if (remLength == 2) return Shortcut;
-                    return 2;
+                    uint32 r = FixedFieldGeneric::readFrom(buffer, bufLength);
+                    if (!isError(r) && remLength == value.typeSize()) return Shortcut;
+                    return r;
                 }
-
-#if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sControl packet (id 0x%04X)\n", (int)indent, "", packetID); }
-#endif
-
                 
-                /** The default constructor */
-                FixedFieldWithID() : packetID(0), remLength(2) { }
-            private:
+                FixedFieldWithRemainingLength(GenericTypeBase & v, uint32 remLength) : FixedFieldGeneric(v), remLength(remLength) {}
+            protected:
                 uint32 remLength;
             };
 
+            /** The fixed field for the packet with a packet ID */
+            struct FixedFieldWithID : public FixedFieldGeneric
+            {
+                /** The packet identifier */
+                GenericType<uint16> packetID;
+                
+#if MQTTDumpCommunication == 1
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sControl packet (id 0x%04X)\n", (int)indent, "", (uint16)packetID); }
+#endif
+                /** The default constructor */
+                FixedFieldWithID() : FixedFieldGeneric(packetID) { }
+            };
+
+            struct FixedFieldWithReason : public FixedFieldWithRemainingLength
+            {
+                /** The connect reason */
+                GenericType<uint8> reasonCode;
+                
+#if MQTTDumpCommunication == 1
+                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*Control packet (reason %u)\n", (int)indent, "", (uint8)reasonCode); }
+#endif
+                uint32 readFrom(const uint8 * buffer, uint32 bufLength)
+                {
+                    if (remLength == 0) { reasonCode.value = 0; return Shortcut; }
+                    return FixedFieldGeneric::readFrom(buffer, bufLength);
+                }                
+                /** The default constructor */
+                FixedFieldWithReason() : FixedFieldWithRemainingLength(reasonCode, 1) { }
+            };
             
-            /** The fixed field for the publish acknowledges packets */
-            struct FixedFieldWithIDAndReason : public Serializable
+#pragma pack(push, 1)
+            struct Hidden IDAndReason
             {
                 /** The packet identifier */
                 uint16 packetID;
                 /** The connect reason */
                 uint8 reasonCode;
-                
-                /** Check if this header is correct */
-                bool check() const { return true; }
-                /** No action from the packet header to the behaviour here */
-                inline void setFlags(const uint8 &) {}
-                /** Some packets are using shortcut length, so we need to know about this */
-                inline void setRemainingLength(const uint32 length) { remLength = length; }
 
-                uint32 getSize() const { return 3; }
-                uint32 copyInto(uint8 * buffer) const
-                {
-                    uint16 p = BigEndian(packetID);
-                    memcpy(buffer, &p, sizeof(p));
-                    buffer[2] = reasonCode;
-                    return 3;
-                }
+                IDAndReason() : packetID(0), reasonCode(0) {}
+            };
+#pragma pack(pop)
+
+            template<> struct Hidden GenericType<IDAndReason> Final : public GenericTypeBase
+            {
+                IDAndReason & value;
+                uint32 typeSize() const { return sizeof(value); }
+                void swapNetwork() const { const_cast<uint16&>(value.packetID) = BigEndian(value.packetID); }
+                void * raw() { return &value; }
+                GenericType<IDAndReason> & operator = (const IDAndReason & o) { value = o; return *this; }
+                operator IDAndReason& () { return value; } 
+
+                GenericType<IDAndReason>(IDAndReason & v) : value(v) {}
+            };
+
+
+            /** The fixed field for the publish acknowledges packets */
+            class FixedFieldWithIDAndReason : public IDAndReason, public FixedFieldWithRemainingLength
+            {
+                GenericType<IDAndReason> _v;
+            public:
+
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
                 {
                     if (bufLength < 2) return NotEnoughData;
                     memcpy(&packetID, buffer, sizeof(packetID)); packetID = BigEndian(packetID);
                     if (remLength == 2) return Shortcut;
-                    reasonCode = buffer[2];
+                    _v.value.reasonCode = buffer[2];
                     if (remLength == 3) return Shortcut; // No need to read properties here
                     return 3;
                 }
@@ -2333,114 +2478,79 @@ namespace Protocol
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sControl packet (id 0x%04X, reason %u)\n", (int)indent, "", packetID, reasonCode); }
 #endif
 
-                
                 /** The default constructor */
-                FixedFieldWithIDAndReason() : packetID(0), reasonCode(0), remLength(3) { }
-            private:
-                uint32 remLength;
+                FixedFieldWithIDAndReason() : FixedFieldWithRemainingLength(_v, 3), _v(*this) { }
             };
 
             /** The SUBSCRIBE header is a generic FixedField header with a packet id */
-            template <> struct FixedField<SUBSCRIBE> : public FixedFieldWithID {};
+            template <> struct FixedField<SUBSCRIBE>    Final: public FixedFieldWithID {};
             /** The SUBACK header is a generic FixedField header with a packet id */
-            template <> struct FixedField<SUBACK> : public FixedFieldWithID {};
+            template <> struct FixedField<SUBACK>       Final: public FixedFieldWithID {};
             /** The UNSUBSCRIBE header is a generic FixedField header with a packet id */
-            template <> struct FixedField<UNSUBSCRIBE> : public FixedFieldWithID {};
+            template <> struct FixedField<UNSUBSCRIBE>  Final: public FixedFieldWithID {};
             /** The UNSUBACK header is a generic FixedField header with a packet id */
-            template <> struct FixedField<UNSUBACK> : public FixedFieldWithID {};
+            template <> struct FixedField<UNSUBACK>     Final: public FixedFieldWithID {};
 
+            /** Get the next packet for each ACK of publishing */
+            static ControlPacketType getNextPacketType(const ControlPacketType type)
+            {
+                static uint8 nexts[16] = { 0, 0, 0, PUBACK, 0, PUBREL, PUBCOMP, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+                return (ControlPacketType)nexts[type];
+            }
 
             /** The PUBACK header is a generic FixedField header with a reason code */
-            template <> struct FixedField<PUBACK> : public FixedFieldWithIDAndReason {};
+            template <> struct FixedField<PUBACK>       Final: public FixedFieldWithIDAndReason {};
             /** The PUBREC header is a generic FixedField header with a reason code */
-            template <> struct FixedField<PUBREC> : public FixedFieldWithIDAndReason {};
+            template <> struct FixedField<PUBREC>       Final: public FixedFieldWithIDAndReason {};
             /** The PUBREL header is a generic FixedField header with a reason code */
-            template <> struct FixedField<PUBREL> : public FixedFieldWithIDAndReason {};
+            template <> struct FixedField<PUBREL>       Final: public FixedFieldWithIDAndReason {};
             /** The PUBCOMP header is a generic FixedField header with a reason code */
-            template <> struct FixedField<PUBCOMP> : public FixedFieldWithIDAndReason {};
+            template <> struct FixedField<PUBCOMP>      Final: public FixedFieldWithIDAndReason {};
 
             /** The fixed field for the DISCONNECT packet which supports shortcut */
-            template <> struct FixedField<DISCONNECT>
+            template <> struct FixedField<DISCONNECT>   Final: public FixedFieldWithReason 
             {
-                /** The connect reason */
-                uint8 reasonCode;
-                
-                /** Check if this header is correct */
-                bool check() const { return true; }
-                /** No action from the packet header to the behaviour here */
-                inline void setFlags(const uint8 &) {}
-                /** Some packets are using shortcut length, so we need to know about this */
-                inline void setRemainingLength(const uint32 length) { remLength = length; }
-
-                uint32 getSize() const { return 1; }
-                uint32 copyInto(uint8 * buffer) const
-                {
-                    buffer[0] = reasonCode;
-                    return 1;
-                }
                 uint32 readFrom(const uint8 * buffer, uint32 bufLength)
                 {
-                    if (remLength == 0) { reasonCode = 0; return Shortcut; }
-                    reasonCode = buffer[1];
-                    if (remLength == 1) return Shortcut;
-                    return 1;
+                    uint32 r = FixedFieldWithReason::readFrom(buffer, bufLength);
+                    if (!isError(r) && remLength == 1) return Shortcut;
+                    return r;
                 }
-#if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sDISCONNECT packet (reason %u)\n", (int)indent, "", reasonCode); }
-#endif
-                
-                /** The default constructor */
-                FixedField<DISCONNECT>() : reasonCode(0), remLength(1) { }
-            private:
-                uint32 remLength;
             };
-
             /** The fixed field for the AUTH packet which supports shortcut */
-            template <> struct FixedField<AUTH>
-            {
-                /** The connect reason */
-                uint8 reasonCode;
-                
-                /** Check if this header is correct */
-                bool check() const { return true; }
-                /** No action from the packet header to the behaviour here */
-                inline void setFlags(const uint8 &) {}
-                /** Some packets are using shortcut length, so we need to know about this */
-                inline void setRemainingLength(const uint32 length) { remLength = length; }
+            template <> struct FixedField<AUTH>         Final: public FixedFieldWithReason {};
 
-                uint32 getSize() const { return 1; }
-                uint32 copyInto(uint8 * buffer) const
-                {
-                    buffer[0] = reasonCode;
-                    return 1;
-                }
-                uint32 readFrom(const uint8 * buffer, uint32 bufLength)
-                {
-                    if (remLength == 0) { reasonCode = 0; return Shortcut; }
-                    reasonCode = buffer[1];
-                    return 1;
-                }
-#if MQTTDumpCommunication == 1
-                void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sAUTH packet (reason %u)\n", (int)indent, "", reasonCode); }
-#endif
-                
-                /** The default constructor */
-                FixedField<AUTH>() : reasonCode(0), remLength(1) { }
-            private:
-                uint32 remLength;
-            };
-
-
-
-            /** The fixed field for the PUBLISH packet.
-                In fact, it's not fixed at all, so we simply implement a serializable interface here */
-            template <> struct FixedField<PUBLISH> : public Serializable
+#pragma pack(push, 1)
+            struct TopicAndID
             {
                 /** The topic name */
                 DynString topicName;
                 /** The packet identifier */
                 uint16 packetID;
-                
+            };
+#pragma pack(pop)
+
+            template<> struct Hidden GenericType<TopicAndID> Final : public GenericTypeBase
+            {
+                TopicAndID & value;
+                uint32 typeSize() const { return value.topicName.getSize(); }
+                void swapNetwork() const { const_cast<uint16&>(value.packetID) = BigEndian(value.packetID); }         
+#if MQTTAvoidValidation != 1
+                bool check() const { return value.topicName.check(); }
+#endif
+                void * raw() { return &value; }
+                GenericType<TopicAndID> & operator = (const TopicAndID & o) { value = o; return *this; }
+                operator TopicAndID& () { return value; } 
+
+                GenericType<TopicAndID>(TopicAndID & v) : value(v) {}
+            };
+
+            /** The fixed field for the PUBLISH packet.
+                In fact, it's not fixed at all, so we simply implement a serializable interface here */
+            template <> class FixedField<PUBLISH> Final: public TopicAndID, public FixedFieldGeneric
+            {
+                GenericType<TopicAndID> _v;
+            public:
                 /** This give the size required for serializing this property header in bytes */
                 uint32 getSize() const { return topicName.getSize() + (hasPacketID() ? 2 : 0); }
                 /** Copy the value into the given buffer.
@@ -2472,12 +2582,8 @@ namespace Protocol
                     }
                     return o;
                 }
-                /** Check if this header is correct */
-                bool check() const { return topicName.check(); }
                 /** No action from the packet header to the behaviour here */
                 inline void setFlags(const uint8 & u) { flags = &u; }
-                /** Some packets are using shortcut length, so we need to know about this */
-                inline void setRemainingLength(const uint32 length) {}
                 /** Check if the flags says there is a packet identifier */
                 inline bool hasPacketID() const { return flags && (*flags & 6) > 0; }
 #if MQTTDumpCommunication == 1
@@ -2485,14 +2591,14 @@ namespace Protocol
 #endif
 
                 /** The default constructor */
-                FixedField<PUBLISH>() : flags(0) { }
+                FixedField<PUBLISH>() : FixedFieldGeneric(_v), _v(*this), flags(0) { }
                 
             private:
                 /** The main header flags */
                 const uint8 * flags;
             };
             
- #pragma pack(pop)
+ 
            
             // Payloads
             ///////////////////////////////////////////////////////////////////////////////////////
@@ -2500,7 +2606,7 @@ namespace Protocol
             /** Helper structure used to store a will message.
                 Please notice that only a client code will use this, so the properties are the full blown properties.
                 They allocate on heap to store the list of properties */
-            struct WillMessage : public Serializable
+            struct WillMessage Final : public Serializable
             {
                 /** That's the will properties to attachs to the will message if required */
                 Properties          willProperties;
@@ -2522,6 +2628,7 @@ namespace Protocol
                     o += willPayload.copyInto(buffer+o);
                     return o;
                 }
+#if MQTTClientOnlyImplementation != 1
                 /** Read the value from a buffer.
                     @param buffer       A pointer to an allocated buffer
                     @param bufLength    The length of the buffer in bytes
@@ -2539,7 +2646,9 @@ namespace Protocol
                     o += s;
                     return o;
                 }
+#endif
                 
+#if MQTTAvoidValidation != 1
                 /** Check the will properties validity */
                 bool check() const
                 {
@@ -2552,6 +2661,7 @@ namespace Protocol
                     }
                     return willTopic.check() && willPayload.check();
                 }
+#endif
 
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sWill message\n", (int)indent, ""); willProperties.dump(out, indent + 2); willTopic.dump(out, indent + 2); willPayload.dump(out, indent + 2); }
@@ -2574,7 +2684,7 @@ namespace Protocol
                 If the MQTTClientOnlyImplementation macro is defined, then this structure is memory mapped (no heap allocation are made).
                 This should be safe since, in that case, you'd never receive any such packet from a server */
             template<>
-            struct Payload<CONNECT> : public Serializable
+            struct Payload<CONNECT> Final : public SerializablePayload
             {
                 /** This is mandatory to have */
                 DynString           clientID;
@@ -2586,10 +2696,9 @@ namespace Protocol
                 DynBinData          password;
                 
                 /** Set the fixed header */
-                inline void setFlags(FixedField<CONNECT> & field) { fixedHeader = &field; }
-                /** Set the expected packet size (this is useful for packet whose payload is application defined) */
-                inline void setExpectedPacketSize(uint32 sizeInBytes) {}
-                
+                void setFlags(const FixedFieldGeneric & field) { fixedHeader = (FixedField<CONNECT>*)&field; }
+
+#if MQTTAvoidValidation != 1                
                 /** Check if the client ID is valid */
                 bool checkClientID() const
                 {
@@ -2605,6 +2714,7 @@ namespace Protocol
                     if (fixedHeader && !fixedHeader->willFlag) return true;
                     return willMessage->check();
                 }
+#endif
                 
                 /** This give the size required for serializing this property header in bytes */
                 uint32 getSize() const { return clientID.getSize() + getFilteredSize(); }
@@ -2620,6 +2730,7 @@ namespace Protocol
                     if (fixedHeader->passwordFlag)   o += password.copyInto(buffer+o);
                     return o;
                 }
+#if MQTTClientOnlyImplementation != 1
                 /** Read the value from a buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 1 byte long
                     @return The number of bytes read from the buffer, or 0xFF upon error */
@@ -2648,6 +2759,8 @@ namespace Protocol
                     }
                     return o;
                 }
+#endif
+#if MQTTAvoidValidation != 1                
                 /** Check if this property is valid */
                 bool check() const
                 {
@@ -2658,6 +2771,7 @@ namespace Protocol
                     if (fixedHeader->passwordFlag && !password.check()) return false;
                     return true;
                 }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -2669,11 +2783,11 @@ namespace Protocol
                 }
 #endif
 
-                Payload<CONNECT>() : willMessage(0) {}
+                Payload<CONNECT>() : willMessage(0), fixedHeader(0) {}
                 
             private:
                 /** This is the flags set in the connect header. This is used to ensure good serialization, this is not serialized */
-                FixedField<CONNECT> *  fixedHeader;
+                const FixedField<CONNECT> *  fixedHeader;
                 uint32 getFilteredSize() const
                 {
                     uint32 s = 0;
@@ -2687,7 +2801,7 @@ namespace Protocol
 
             /** Generic code for payload with plain data */
             template <bool withAllocation>
-            struct PayloadWithData : public Serializable
+            struct PayloadWithData : public SerializablePayload
             {
                 /** The payload data */
                 uint8 * data;
@@ -2719,8 +2833,7 @@ namespace Protocol
                     memcpy(data, buffer, size);
                     return size;
                 }
-                /** Check if this payload is valid */
-                bool check() const { return true; }
+
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sPayload (length: %u)\n", (int)indent, "", size); }
 #endif                
@@ -2729,7 +2842,7 @@ namespace Protocol
             };
 
             template <>
-            struct PayloadWithData<false> : public Serializable
+            struct PayloadWithData<false> : public SerializablePayload
             {
                 /** The payload data */
                 const uint8 * data;
@@ -2760,8 +2873,7 @@ namespace Protocol
                     data = buffer;
                     return size;
                 }
-                /** Check if this payload is valid */
-                bool check() const { return true; }
+
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) { out += MQTTStringPrintf("%*sPayload (length: %u)\n", (int)indent, "", size); }
 #endif                
@@ -2772,13 +2884,11 @@ namespace Protocol
 
             /** The expected payload for subscribe packet */
             template<>
-            struct Payload<SUBSCRIBE> : public Serializable
+            struct Payload<SUBSCRIBE> Final: public SerializablePayload
             {
                 /** The subscribe topics */
                 SubscribeTopic * topics;
                 
-                /** Set the fixed header */
-                inline void setFlags(FixedField<SUBSCRIBE> &) {  }
                 /** Set the expected packet size (this is useful for packet whose payload is application defined) */
                 inline void setExpectedPacketSize(uint32 sizeInBytes) { expSize = sizeInBytes; }
                 
@@ -2788,6 +2898,7 @@ namespace Protocol
                     @param buffer   A pointer to an allocated buffer that's getSize() long.
                     @return The number of bytes used in the buffer */
                 uint32 copyInto(uint8 * buffer) const { return topics ? topics->copyInto(buffer) : 0; }
+#if MQTTClientOnlyImplementation != 1
                 /** Read the value from a buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 1 byte long
                     @return The number of bytes read from the buffer, or 0xFF upon error */
@@ -2798,8 +2909,12 @@ namespace Protocol
                     topics = new SubscribeTopic();
                     return topics->readFrom(buffer, expSize);
                 }
+#endif
+
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return topics ? topics->check() : true; }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -2817,13 +2932,11 @@ namespace Protocol
 
             /** The expected payload for unsubscribe packet */
             template<>
-            struct Payload<UNSUBSCRIBE> : public Serializable
+            struct Payload<UNSUBSCRIBE> Final: public SerializablePayload
             {
                 /** The subscribe topics */
                 UnsubscribeTopic * topics;
                 
-                /** Set the fixed header */
-                inline void setFlags(FixedField<UNSUBSCRIBE> &) {  }
                 /** Set the expected packet size (this is useful for packet whose payload is application defined) */
                 inline void setExpectedPacketSize(uint32 sizeInBytes) { expSize = sizeInBytes; }
                 
@@ -2833,6 +2946,7 @@ namespace Protocol
                     @param buffer   A pointer to an allocated buffer that's getSize() long.
                     @return The number of bytes used in the buffer */
                 uint32 copyInto(uint8 * buffer) const { return topics ? topics->copyInto(buffer) : 0; }
+#if MQTTClientOnlyImplementation != 1
                 /** Read the value from a buffer.
                     @param buffer   A pointer to an allocated buffer that's at least 1 byte long
                     @return The number of bytes read from the buffer, or 0xFF upon error */
@@ -2843,8 +2957,11 @@ namespace Protocol
                     topics = new UnsubscribeTopic();
                     return topics->readFrom(buffer, expSize);
                 }
+#endif
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return topics ? topics->check() : true; }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -2860,29 +2977,22 @@ namespace Protocol
                 uint32 expSize;
             };
 
-            /** Some packet doesn't have meaningful flags, so skip repeatitive code */ 
-            template <ControlPacketType type>
-            struct WithoutFlags
-            {
-                inline void setExpectedPacketSize(uint32 size) {}
-                inline void setFlags(FixedField<type> &) { }
-            };
 
             /** The specialization for PUBLISH payload.
                 As per the standard, it's opaque data that are application defined */
-            template<> struct Payload<PUBLISH> : public PayloadWithData<true>, public WithoutFlags<PUBLISH> {};
+            template<> struct Payload<PUBLISH>  Final: public PayloadWithData<true> {};
 
             /** The expected payload for a subscribe acknowledge.
                 The data is a array of reason code, and it should contains as many reasons as found in subscribe packet received */
-            template<> struct Payload<SUBACK> : public PayloadWithData<true>, public WithoutFlags<SUBACK> {};
+            template<> struct Payload<SUBACK>   Final: public PayloadWithData<true> {};
 
             /** The expected payload for a unsubscribe acknowledge.
                 The data is a array of reason code, and it should contains as many reasons as found in unsubscribe packet received */
-            template<> struct Payload<UNSUBACK> : public PayloadWithData<true>, public WithoutFlags<UNSUBACK> {};
+            template<> struct Payload<UNSUBACK> Final: public PayloadWithData<true> {};
 
-            struct ROPayloadPublish  : public PayloadWithData<false> { inline void setFlags(FixedField<PUBLISH> &) { } };
-            struct ROPayloadSubACK   : public PayloadWithData<false> { inline void setFlags(FixedField<SUBACK> &) { } };
-            struct ROPayloadUnsubACK : public PayloadWithData<false> { inline void setFlags(FixedField<UNSUBACK> &) { } };
+            struct ROPayloadPublish             Final: public PayloadWithData<false> { };
+            struct ROPayloadSubACK              Final: public PayloadWithData<false> { };
+            struct ROPayloadUnsubACK            Final: public PayloadWithData<false> { };
 
 
             template <ControlPacketType type, bool>
@@ -2894,7 +3004,7 @@ namespace Protocol
 
             // Those don't have any payload, let's simplify them
             template <ControlPacketType type>
-            struct EmptySerializableWithoutFlags : public EmptySerializable, public WithoutFlags<type> {};
+            struct EmptySerializableWithoutFlags : public SerializablePayload {};
             // Implementation here
             template <bool a> struct PayloadSelector<CONNACK, a>    { typedef EmptySerializableWithoutFlags<CONNACK>    PayloadType; };
             template <bool a> struct PayloadSelector<PUBACK, a>     { typedef EmptySerializableWithoutFlags<PUBACK>     PayloadType; };
@@ -2926,36 +3036,32 @@ namespace Protocol
             {
                 virtual uint32 computePacketSize(const bool includePayload = true) = 0;
             };
-
-            template <ControlPacketType type, bool propertyMapped = false>
-            struct ControlPacket : public ControlPacketSerializable
+            /** The base for all control packet */
+            struct ControlPacketSerializableImpl : public ControlPacketSerializable
             {
                 /** The fixed header */
-                typename ControlPacketMeta<type>::FixedHeader                   header;
+                FixedHeaderBase &                                               header;
                 /** The remaining length in bytes, not including the header and itself */
                 VBInt                                                           remLength;
                 /** The fixed variable header */
-                FixedField<type>                                                fixedVariableHeader;
+                FixedFieldGeneric &                                             fixedVariableHeader;
                 /** The variable header containing properties */
-                typename VHPropertyChooser<type, propertyMapped>::VHProperty    props;
+                SerializableProperties &                                        props;
                 /** The payload (if any required) */
-#if MQTTClientOnlyImplementation == 1
-                // Client implementation never need to allocate anything here, either it's client provided or server's buffer provided 
-                typename PayloadSelector<type, true>::PayloadType               payload;
-#else
-                typename PayloadSelector<type, propertyMapped>::PayloadType     payload;
-#endif                
+                SerializablePayload &                                           payload;
+                
 
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
-                    out += MQTTStringPrintf("%*s%s control packet (rlength: %u)\n", (int)indent, "", getControlPacketName(type), (uint32)remLength); 
+                    out += MQTTStringPrintf("%*s%s control packet (rlength: %u)\n", (int)indent, "", getControlPacketName(header.getType()), (uint32)remLength); 
                     header.dump(out, indent + 2);
                     fixedVariableHeader.dump(out, indent + 2);
                     props.dump(out, indent + 2);
                     payload.dump(out, indent + 2);
                 }
 #endif                
+
 
                 /** An helper function to actually compute the current packet size, instead of returning the computed value.
                     @param includePayload   If set (default), it compute the payload size and set the remaining length accordingly
@@ -3014,14 +3120,55 @@ namespace Protocol
                     if (isError(s)) return s;
                     return o + s;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const
                 {
-                    return header.check() && remLength.check() && fixedVariableHeader.check() && props.checkPropertiesFor(type) && payload.check();
+                    return header.check() && remLength.check() && fixedVariableHeader.check() && props.checkPropertiesFor(header.getType()) && payload.check();
                 }
-                
-                ControlPacket() { payload.setFlags(fixedVariableHeader); fixedVariableHeader.setFlags(header.typeAndFlags); }
+#endif                
+                ControlPacketSerializableImpl(FixedHeaderBase & _header, FixedFieldGeneric & _fixedVariableHeader, SerializableProperties & _props, SerializablePayload & _payload) 
+                    : header(_header), fixedVariableHeader(_fixedVariableHeader), props(_props), payload(_payload) {}
             };
+
+            template <ControlPacketType type, bool propertyMapped = false>
+            struct ControlPacket Final : public ControlPacketSerializableImpl
+            {
+                /** The fixed header */
+                typename ControlPacketMeta<type>::FixedHeader                   header;
+                /** The fixed variable header */
+                FixedField<type>                                                fixedVariableHeader;
+                /** The variable header containing properties */
+                typename VHPropertyChooser<type, propertyMapped>::VHProperty    props;
+                /** The payload (if any required) */
+#if MQTTClientOnlyImplementation == 1
+                // Client implementation never need to allocate anything here, either it's client provided or server's buffer provided 
+                typename PayloadSelector<type, true>::PayloadType               payload;
+#else
+                typename PayloadSelector<type, propertyMapped>::PayloadType     payload;
+#endif                
+                ControlPacket() : ControlPacketSerializableImpl(header, fixedVariableHeader, props, payload) 
+                {
+                    payload.setFlags(fixedVariableHeader); fixedVariableHeader.setFlags(header.typeAndFlags);
+                }
+            };
+
+            /** Publish reply packets are too similar to avoid making a single version out of them to avoid code bloat. */
+            struct PublishReplyPacket Final : public ControlPacketSerializableImpl
+            {
+                /** The fixed header */
+                FixedHeaderBase                                                 header;
+                /** The fixed variable header */
+                FixedField<PUBACK>                                              fixedVariableHeader;
+                /** The variable header containing properties */
+                typename VHPropertyChooser<PUBACK, true>::VHProperty            props;
+                /** The payload (if any required) */
+                SerializablePayload                                             payload;
+
+                PublishReplyPacket(const ControlPacketType type) : ControlPacketSerializableImpl(header, fixedVariableHeader, props, payload), header(type, type == PUBREL ? 2 : 0) 
+                {}
+            };
+
 
             /** Ping control packet are so empty that it makes sense to further optimize their parsing to strict minimum */
             template <ControlPacketType type>
@@ -3051,8 +3198,10 @@ namespace Protocol
                     if (buffer[1]) return BadData;
                     return 2;
                 }
+#if MQTTAvoidValidation != 1
                 /** Check if this property is valid */
                 bool check() const { return header.check(); }
+#endif
 #if MQTTDumpCommunication == 1
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
@@ -3063,9 +3212,9 @@ namespace Protocol
 
             };
             /** Declare the ping request */
-            template<> struct ControlPacket<PINGREQ> : public PingTemplate<PINGREQ> {};
+            template<> struct ControlPacket<PINGREQ>    Final: public PingTemplate<PINGREQ> {};
             /** Declare the ping response */
-            template<> struct ControlPacket<PINGRESP> : public PingTemplate<PINGRESP> {};
+            template<> struct ControlPacket<PINGRESP>   Final: public PingTemplate<PINGRESP> {};
 
             /** Some useful type definition to avoid understanding the garbage above */
             typedef ControlPacket<PUBLISH>          PublishPacket;

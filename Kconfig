@@ -20,13 +20,6 @@ config ESP_EMQTT5_TLS_ENABLE
    help
         You can activate TLS but it burns space in memory and flash.
 
-config ESP_EMQTT5_MAXQOS
-   int "Max supported QualityOfService level"
-   depends on ESP_EMQTT5_ENABLED
-   default 2
-   help
-        You can limit the highest supported QoS level to save space in memory and flash if you don't need all QoS features.
-
 config ESP_EMQTT5_AUTH
    bool "Enable AUTH packet processing"
    depends on ESP_EMQTT5_ENABLED
@@ -40,5 +33,12 @@ config ESP_EMQTT5_DUMP
    default n
    help
         Only for debugging purpose, this will dump all communication between the client and the broker. Don't let this enabled for production as it will show all secrets in the logs
+
+config ESP_EMQTT5_SKIPVAL
+   bool "Skip object validation"
+   depends on ESP_EMQTT5_ENABLED
+   default n
+   help
+        Only if you master the broker and know it's compliant, you can remove all checks for valid packets. This reduces binary size but it's unsafe
 
 endmenu
