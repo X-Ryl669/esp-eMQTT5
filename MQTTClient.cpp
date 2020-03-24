@@ -292,8 +292,7 @@ namespace Network { namespace Client {
             if (!socket->setOption(Network::Socket::BaseSocket::NoDelay, 1)) return -4;
             if (!socket->setOption(Network::Socket::BaseSocket::NoSigPipe, 1)) return -5;
             // Then connect the socket to the server
-            const Network::Address::BaseAddress & address = Network::Address::URL("", String(host) + ":" + port, "").getBindableAddress();
-            int ret = socket->connect(address);
+            int ret = socket->connect(Network::Address::URL("", String(host) + ":" + port, ""));
             if (ret < 0) return -6;
             if (ret == 0) return 0;
 
@@ -720,7 +719,7 @@ namespace Network { namespace Client {
             return ErrorType::BadParameter;
 
         // Please do not move the line below as it must outlive the packet 
-        Protocol::MQTT::V5::StackProperty<uint32> maxProp(Protocol::MQTT::V5::PacketSizeMax, impl->recvBufferSize);
+        Protocol::MQTT::V5::Property<uint32> maxProp(Protocol::MQTT::V5::PacketSizeMax, impl->recvBufferSize);
         Protocol::MQTT::V5::ControlPacket<Protocol::MQTT::V5::CONNECT> packet;
 
         ScopedLock scope(impl->lock);
@@ -799,45 +798,44 @@ namespace Network { namespace Client {
 #endif
                 Protocol::MQTT::V5::PropertyType type = Protocol::MQTT::V5::BadProperty;
                 uint32 offset = 0;
-                Protocol::MQTT::V5::MemMappedVisitor * visitor = packet.props.getProperty(type, offset);
-                while (visitor)
+                Protocol::MQTT::V5::VisitorVariant visitor;
+                while (packet.props.getProperty(visitor, type, offset))
                 {
                     switch (type)
                     {
                     case Protocol::MQTT::V5::PacketSizeMax:
                     {
-                        Protocol::MQTT::V5::LittleEndianPODVisitor<uint32> * pod = static_cast<Protocol::MQTT::V5::LittleEndianPODVisitor<uint32> *>(visitor);
+                        auto pod = visitor.as< Protocol::MQTT::V5::LittleEndianPODVisitor<uint32> >();
                         impl->maxPacketSize = pod->getValue();
                         break;
                     }
                     case Protocol::MQTT::V5::AssignedClientID:
                     {
-                        Protocol::MQTT::V5::DynamicStringView * view = static_cast<DynamicStringView *>(visitor);
+                        auto view = visitor.as< Protocol::MQTT::V5::DynamicStringView >();
                         impl->clientID.from(view->data, view->length); // This allocates memory for holding the copy
                         break;
                     }
                     case Protocol::MQTT::V5::ServerKeepAlive:
                     {
-                        Protocol::MQTT::V5::LittleEndianPODVisitor<uint16> * pod = static_cast<Protocol::MQTT::V5::LittleEndianPODVisitor<uint16> *>(visitor);
+                        auto pod = visitor.as< Protocol::MQTT::V5::LittleEndianPODVisitor<uint16> >(); 
                         impl->keepAlive = (pod->getValue() + (pod->getValue()>>1)) >> 1; // Use 0.75 of the server's told value
                         break;
                     }
 #if MQTTUseAuth == 1        
                     case Protocol::MQTT::V5::AuthenticationMethod:
                     {
-                        DynamicStringView * view = static_cast<DynamicStringView *>(visitor);
+                        auto view = visitor.as<DynamicStringView>(); 
                         authMethod = *view;
                     } break;
                     case Protocol::MQTT::V5::AuthenticationData:
                     {
-                        DynamicBinDataView * data = static_cast<DynamicBinDataView *>(visitor);
+                        auto data = visitor.as<DynamicBinDataView>();
                         authData = *data;
                     } break;
 #endif
                     // Actually, we don't care about other properties. Maybe we should ?
                     default: break;
                     }
-                    visitor = packet.props.getProperty(type, offset);
                 }
 #if MQTTUseAuth == 1
                 if (packet.fixedVariableHeader.reasonCode == Protocol::MQTT::V5::NotAuthorized
@@ -864,22 +862,21 @@ namespace Network { namespace Client {
                 uint32 offset = 0;
 
                 Protocol::MQTT::V5::PropertyType type = Protocol::MQTT::V5::BadProperty;
-                Protocol::MQTT::V5::MemMappedVisitor * visitor = packet.props.getProperty(type, offset);
-                while (visitor && (authMethod.length == 0 || authData.length == 0))
+                Protocol::MQTT::V5::VisitorVariant visitor;
+                while (packet.props.getProperty(visitor, type, offset) && (authMethod.length == 0 || authData.length == 0))
                 {
                     if (type == Protocol::MQTT::V5::AuthenticationMethod)
                     {
-                        DynamicStringView * view = static_cast<DynamicStringView *>(visitor);
+                        auto view = visitor.as< DynamicStringView >();
                         authMethod = *view;
                     }
                     else if (type == Protocol::MQTT::V5::AuthenticationData)
                     {
-                        DynamicBinDataView * data = static_cast<DynamicBinDataView *>(visitor);
+                        auto data = visitor.as< DynamicBinDataView >();
                         authData = *data;
                     }
-                    visitor = packet.props.getProperty(type, offset);
                 }
-                impl->cb->authReceived((ReasonCodes)packet.fixedVariableHeader.reasonCode, authMethod, authData, packet.props);
+                impl->cb->authReceived(packet.fixedVariableHeader.reason(), authMethod, authData, packet.props);
                 return ErrorType::Success;
             }
         }
@@ -899,8 +896,8 @@ namespace Network { namespace Client {
             return ErrorType::BadParameter; // A auth method is required
 
         // Don't move this around, it must appear on stack until it's no more used
-        Protocol::MQTT::V5::StackProperty<DynamicStringView> method(Protocol::MQTT::V5::AuthenticationMethod, authMethod);
-        Protocol::MQTT::V5::StackProperty<DynamicBinDataView> data(Protocol::MQTT::V5::AuthenticationData, authData);
+        Protocol::MQTT::V5::Property<DynamicStringView> method(Protocol::MQTT::V5::AuthenticationMethod, authMethod);
+        Protocol::MQTT::V5::Property<DynamicBinDataView> data(Protocol::MQTT::V5::AuthenticationData, authData);
 
         Protocol::MQTT::V5::AuthPacket packet;
 
@@ -940,22 +937,21 @@ namespace Network { namespace Client {
                 uint32 offset = 0;
 
                 Protocol::MQTT::V5::PropertyType type = Protocol::MQTT::V5::BadProperty;
-                Protocol::MQTT::V5::MemMappedVisitor * visitor = packet.props.getProperty(type, offset);
-                while (visitor && (authMethod.length == 0 || authData.length == 0))
+                Protocol::MQTT::V5::VisitorVariant visitor;
+                while (packet.props.getProperty(visitor, type, offset) && (authMethod.length == 0 || authData.length == 0))
                 {
                     if (type == Protocol::MQTT::V5::AuthenticationMethod)
                     {
-                        DynamicStringView * view = static_cast<DynamicStringView *>(visitor);
+                        auto view = visitor.as< DynamicStringView >();
                         authMethod = *view;
                     }
                     else if (type == Protocol::MQTT::V5::AuthenticationData)
                     {
-                        DynamicBinDataView * data = static_cast<DynamicBinDataView *>(visitor);
+                        auto data = visitor.as< DynamicBinDataView >();
                         authData = *data;
                     }
-                    visitor = packet.props.getProperty(type, offset);
                 }
-                impl->cb->authReceived((ReasonCodes)packet.fixedVariableHeader.reasonCode, authMethod, authData, packet.props);
+                impl->cb->authReceived(packet.fixedVariableHeader.reason(), authMethod, authData, packet.props);
                 return ErrorType::Success;
             }
         }
@@ -970,7 +966,7 @@ namespace Network { namespace Client {
             return ErrorType::BadParameter;
 
         // Create the subscribe topic here
-        Protocol::MQTT::V5::StackSubscribeTopic topic(_topic, retainHandling, retainAsPublished, withAutoFeedBack, maxAcceptedQoS);
+        Protocol::MQTT::V5::SubscribeTopic topic(_topic, retainHandling, retainAsPublished, withAutoFeedBack, maxAcceptedQoS, true);
         // Then proceed to subscribing
         return subscribe(topic, properties);
     }
@@ -1015,18 +1011,12 @@ namespace Network { namespace Client {
 
             // Then check reason codes
             SubscribeTopic * topic = packet.payload.topics;
-            uint32 count = 0;
-            while (topic)
-            {
-                if (!rpacket.payload.data || rpacket.payload.size <= count)
-                    return ReasonCodes::ProtocolError;
-
-                if (rpacket.payload.data[count] >= ReasonCodes::UnspecifiedError)
-                    return (ReasonCodes)rpacket.payload.data[count];
-
-                count++;
-                topic = topic->next;
-            }
+            uint32 count = topic->count();
+            if (!rpacket.payload.data || rpacket.payload.size < count)
+                return ReasonCodes::ProtocolError;
+            for (uint32 i = 0; i < count; i++)
+                if (rpacket.payload.data[i] >= ReasonCodes::UnspecifiedError)
+                    return (ReasonCodes)rpacket.payload.data[i];
 
             return ErrorType::Success;
         }
