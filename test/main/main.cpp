@@ -21,7 +21,7 @@
 
 #define LOGNAME "MQTT"
 
-struct MessageReceiver : public Network::Client::MQTTv5::MessageReceived
+struct MessageReceiver : public Network::Client::MessageReceived
 {
     void messageReceived(const Network::Client::MQTTv5::DynamicStringView & topic, const Network::Client::MQTTv5::DynamicBinDataView & payload,
                          const uint16 packetIdentifier, const Network::Client::MQTTv5::PropertiesView & properties)
