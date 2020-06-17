@@ -35,12 +35,14 @@ namespace Network { namespace Client {
         There's a default implementation for Berkeley socket and (Open)SSL socket in the ClassPath, but
         you can implement any library you want, like, for example, lwIP, so change this if you do */
     typedef Network::Socket::BerkeleySocket Socket;
+  #if MQTTUseTLS == 1
     /*  The SSL socket we are using (when using SSL/TLS connection).
         There's a default implementation for (Open/Libre)SSL socket in ClassPath, but you can implement
         one class with, for example, MBEDTLS here if you want. Change this if you do */
     typedef Network::Socket::SSL_TLS        SSLSocket;
     /** The SSL context to (re)use. If you need to skip negotiating, you'll need to modify this context */
     typedef SSLSocket::SSLContext           SSLContext;
+  #endif
 
     /** The scoped lock class we are using */
     typedef Threading::ScopedLock   ScopedLock;
@@ -53,8 +55,10 @@ namespace Network { namespace Client {
         Socket *                        socket;
         /** The DER encoded certificate (if provided) */
         const DynamicBinDataView  *     brokerCert;
+  #if MQTTUseTLS == 1
         /** The SSL context (if any used) */
         SSLContext *                    sslContext;
+  #endif
         /** This client unique identifier */
         DynamicString                   clientID; 
         /** The message received callback to use */
@@ -96,7 +100,11 @@ namespace Network { namespace Client {
         }
 
         Impl(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert)
-             : socket(0), brokerCert(brokerCert), sslContext(0), clientID(clientID), cb(callback), timeoutMs(3000), lastCommunication(0), publishCurrentId(0), keepAlive(300),
+             : socket(0), brokerCert(brokerCert), 
+  #if MQTTUseTLS == 1
+               sslContext(0),
+  #endif 
+               clientID(clientID), cb(callback), timeoutMs(3000), lastCommunication(0), publishCurrentId(0), keepAlive(300),
                recvState(Ready), recvBufferSize(max(callback->maxPacketSize(), 8U)), maxPacketSize(65535), available(0), recvBuffer((uint8*)::malloc(recvBufferSize)), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(recvBufferSize).getSize())
         {}
         ~Impl() { delete socket; socket = 0; ::free(recvBuffer); recvBuffer = 0; recvBufferSize = 0; }
@@ -281,6 +289,7 @@ namespace Network { namespace Client {
             if (isOpen()) return -1;
             if (withTLS)
             {
+  #if MQTTUseTLS == 1
                 if (!sslContext) 
                 {   // If one certificate is given let's use it instead of the default CA bundle
                     sslContext = brokerCert ? new SSLContext(NULL, Crypto::SSLContext::Any) : new SSLContext();
@@ -296,6 +305,9 @@ namespace Network { namespace Client {
                     }
                 }
                 socket = new Network::Socket::SSL_TLS(*sslContext, Network::Socket::BaseSocket::Stream);
+  #else
+                return -1;
+  #endif
             } else socket = new Socket(Network::Socket::BaseSocket::Stream);
             
             if (!socket) return -2;
