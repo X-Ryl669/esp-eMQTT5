@@ -41,4 +41,11 @@ config ESP_EMQTT5_SKIPVAL
    help
         Only if you master the broker and know it's compliant, you can remove all checks for valid packets. This reduces binary size but it's unsafe
 
+config ESP_EMQTT5_FORCEINCLUDE
+   string "Path to include file to be used before any other. Default to empty file"
+   depends on ESP_EMQTT5_ENABLED
+   default "empty.hpp"
+   help
+        If you have a mutex class and/or a string class you can force including a file to use them instead of std::string and a dumb spinlock
+   
 endmenu
