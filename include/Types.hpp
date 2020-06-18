@@ -2,7 +2,8 @@
 #define hpp_eMQTTTypes_hpp
 
 #if defined(ESP_PLATFORM)
-    #include CONFIG_ESP_EMQTT5_FORCEINCLUDE
+  #include <sdkconfig.h>
+  #include CONFIG_ESP_EMQTT5_FORCEINCLUDE
 #endif
 
 // Configure the typical macros
