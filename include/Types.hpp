@@ -224,37 +224,39 @@
     // We need gethostbyname or getaddrinfo
     #include <netdb.h>
     #include <stdarg.h>
+    #include <new>
 
-    	#ifndef DontWantUINT8
-		typedef unsigned char uint8;
-	#endif
-	#ifndef DontWantUINT32
-		typedef unsigned int uint32;
-	#endif
-	#ifndef DontWantUINT16
-		typedef unsigned short uint16;
-	#endif
 
-	#ifndef DontWantUINT64
-		typedef unsigned long long uint64;
-        #endif
+    #ifndef DontWantUINT8
+        typedef unsigned char uint8;
+    #endif
+    #ifndef DontWantUINT32
+        typedef unsigned int uint32;
+    #endif
+    #ifndef DontWantUINT16
+        typedef unsigned short uint16;
+    #endif
 
-	#ifndef DontWantINT8
-		typedef signed char int8;
-	#endif
-	#ifndef DontWantINT32
-		typedef signed int int32;
-	#endif
-	#ifndef DontWantINT16
-		typedef signed short int16;
-	#endif
+    #ifndef DontWantUINT64
+        typedef unsigned long long uint64;
+    #endif
 
-	#ifndef DontWantINT64
-		typedef long long int64;
-	#endif
+    #ifndef DontWantINT8
+        typedef signed char int8;
+    #endif
+    #ifndef DontWantINT32
+        typedef signed int int32;
+    #endif
+    #ifndef DontWantINT16
+        typedef signed short int16;
+    #endif
+
+    #ifndef DontWantINT64
+        typedef long long int64;
+    #endif
         #ifndef DontWantNativeInt
-		typedef intptr_t nativeint;
-	#endif
+        typedef intptr_t nativeint;
+    #endif
 
     #define PF_LLD  "%lld"
     #define PF_LLU  "%llu"
@@ -268,11 +270,11 @@
 #else
     // Prevent the types.h file to define the fd_set type (stupid definition by the way)
     #define __USE_W32_SOCKETS
-	#include <stdio.h>
-	#include <time.h>
-	#include <stdlib.h>
-	#include <string.h>
-	#include <wchar.h>
+    #include <stdio.h>
+    #include <time.h>
+    #include <stdlib.h>
+    #include <string.h>
+    #include <wchar.h>
     #include "pthreadRTOS.h"
     #include "lwip/sockets.h"
 
@@ -284,36 +286,36 @@
     #include "lwip/debug.h"
 
     #include "socket_map.h"
-	#include "bsp/inc/hw_types.h"
-	#include "driverlib/rom_map.h"
-	#include "driverlib/interrupt.h"
+    #include "bsp/inc/hw_types.h"
+    #include "driverlib/rom_map.h"
+    #include "driverlib/interrupt.h"
 
 
-	#ifndef DontWantUINT8
-		typedef unsigned char uint8;
-	#endif
-	#ifndef DontWantUINT32
-		typedef unsigned int uint32;
-	#endif
-	#ifndef DontWantUINT16
-		typedef unsigned short uint16;
-	#endif
+    #ifndef DontWantUINT8
+        typedef unsigned char uint8;
+    #endif
+    #ifndef DontWantUINT32
+        typedef unsigned int uint32;
+    #endif
+    #ifndef DontWantUINT16
+        typedef unsigned short uint16;
+    #endif
 
-	#ifndef DontWantUINT64
+    #ifndef DontWantUINT64
         typedef unsigned long long uint64;
     #endif
 
-	#ifndef DontWantINT8
-		typedef signed char int8;
-	#endif
-	#ifndef DontWantINT32
-		typedef signed int int32;
-	#endif
-	#ifndef DontWantINT16
-		typedef signed short int16;
-	#endif
+    #ifndef DontWantINT8
+        typedef signed char int8;
+    #endif
+    #ifndef DontWantINT32
+        typedef signed int int32;
+    #endif
+    #ifndef DontWantINT16
+        typedef signed short int16;
+    #endif
 
-	#ifndef DontWantINT64
+    #ifndef DontWantINT64
         typedef long long int64;
     #endif
         #ifndef DontWantNativeInt
@@ -384,7 +386,7 @@
     #define TLSDecl 
 #endif
 
-#ifndef min
+#ifndef minDefined
     template <typename T>
         inline T min(T a, T b) { return a < b ? a : b; }
     template <typename T>
@@ -504,7 +506,9 @@ namespace Private
     };
 }
 
-#define ArrSz(X) sizeof(Private::ArraySize_REQUIRES_ARRAY_ARGUMENT(X))
+#ifndef ArrSz
+  #define ArrSz(X) sizeof(Private::ArraySize_REQUIRES_ARRAY_ARGUMENT(X))
+#endif
 #ifndef ArraySize
    #define ArraySize ArrSz
 #endif
