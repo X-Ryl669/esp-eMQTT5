@@ -1,51 +1,51 @@
 menu "esp-eMQTT5"
 
-config ESP_EMQTT5_ENABLED
-    bool "Enable the eMQTT5 component"
-    default y
-    help
-        This enables the eMQTT5 component.
+    config ESP_EMQTT5_ENABLED
+        bool "Enable the eMQTT5 component"
+        default y
+        help
+            This enables the eMQTT5 component.
 
-config ESP_EMQTT5_STACK_SIZE
-    int "MQTT event loop expected task stack size"
+    config ESP_EMQTT5_STACK_SIZE
+        int "MQTT event loop expected task stack size"
         depends on ESP_EMQTT5_ENABLED
-    default 256
-    help
+        default 256
+        help
         Temporary buffer allocations are prefered on the stack before being done on the heap. If you run eMQTT5 event loop in a task, please set the maximum size that's safe to allocate on stack here.
 
-config ESP_EMQTT5_TLS_ENABLE
-   bool "Enable TLS connection"
-   depends on ESP_EMQTT5_ENABLED
-   default n
-   help
-        You can activate TLS but it burns space in memory and flash.
+    config ESP_EMQTT5_TLS_ENABLE
+        bool "Enable TLS connection"
+        depends on ESP_EMQTT5_ENABLED
+        default n
+        help
+            You can activate TLS but it burns space in memory and flash.
 
-config ESP_EMQTT5_AUTH
-   bool "Enable AUTH packet processing"
-   depends on ESP_EMQTT5_ENABLED
-   default n
-   help
-        If you want to support AUTH packet with your broker, enable this. 
+    config ESP_EMQTT5_AUTH
+        bool "Enable AUTH packet processing"
+        depends on ESP_EMQTT5_ENABLED
+        default n
+        help
+        If you want to support AUTH packet with your broker, enable this.
 
-config ESP_EMQTT5_DUMP
-   bool "Enable communication dumping"
-   depends on ESP_EMQTT5_ENABLED
-   default n
-   help
+    config ESP_EMQTT5_DUMP
+        bool "Enable communication dumping"
+        depends on ESP_EMQTT5_ENABLED
+        default n
+        help
         Only for debugging purpose, this will dump all communication between the client and the broker. Don't let this enabled for production as it will show all secrets in the logs
 
-config ESP_EMQTT5_SKIPVAL
-   bool "Skip object validation"
-   depends on ESP_EMQTT5_ENABLED
-   default n
-   help
+    config ESP_EMQTT5_SKIPVAL
+        bool "Skip object validation"
+        depends on ESP_EMQTT5_ENABLED
+        default n
+        help
         Only if you master the broker and know it's compliant, you can remove all checks for valid packets. This reduces binary size but it's unsafe
 
-config ESP_EMQTT5_FORCEINCLUDE
-   string "Path to include file to be used before any other. Default to empty file"
-   depends on ESP_EMQTT5_ENABLED
-   default "empty.hpp"
-   help
+    config ESP_EMQTT5_FORCEINCLUDE
+        string "Path to include file to be used before any other. Default to empty file"
+        depends on ESP_EMQTT5_ENABLED
+        default "empty.hpp"
+        help
         If you have a mutex class and/or a string class you can force including a file to use them instead of std::string and a dumb spinlock
-   
+
 endmenu
