@@ -22,7 +22,7 @@
 /** Remove all validation from MQTT types.
     This removes validation check for all MQTT types in order to save binary size.
     This is only recommanded if you are sure about your broker implementation (don't set this to 1 if you
-    intend to connect on unknown broker) */
+    intend to connect to unknown broker) */
 #define MQTTAvoidValidation CONFIG_ESP_EMQTT5_SKIPVAL
 
 /** Enable SSL/TLS code.
