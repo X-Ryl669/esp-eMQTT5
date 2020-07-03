@@ -212,7 +212,8 @@ namespace Protocol
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
                     MemMappedVisitor::dump(out, indent);
-                    out += getValue();
+                    MQTTHexDump(out, (const uint8*)&value, sizeof(value));
+//                    out += getValue();
                     out += "\n";
                 }
 #endif
@@ -240,7 +241,7 @@ namespace Protocol
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
                     MemMappedVisitor::dump(out, indent);
-                    out += getValue();
+                    MQTTHexDump(out, (const uint8*)&value, sizeof(value));
                     out += "\n";
                 }
 #endif
@@ -1364,7 +1365,7 @@ namespace Protocol
                 void dump(MQTTString & out, const int indent = 0) 
                 { 
                     out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
-                    out += MQTTStringPrintf("%*s", indent+2, ""); out += (T)value; out += "\n"; 
+                    out += MQTTStringPrintf("%*s", indent+2, ""); MQTTHexDump(out, (const uint8*)value.raw(), value.typeSize()); out += "\n"; 
                 }
 #endif
 

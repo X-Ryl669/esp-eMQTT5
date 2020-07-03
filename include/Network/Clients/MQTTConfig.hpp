@@ -2,6 +2,7 @@
 #define hpp_MQTTConfig_hpp
 
 // Configuration is done via macros
+#include "sdkconfig.h"
 
 /** Is the protocol going to be used as a client only or as a broker.
     Default: 1. */
