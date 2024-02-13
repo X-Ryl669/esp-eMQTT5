@@ -803,14 +803,14 @@ namespace Network { namespace Client {
 
         Impl(const char * clientID, MessageReceived * callback, const DynamicBinDataView * brokerCert)
              : socket(0), brokerCert(brokerCert), clientID(clientID), cb(callback), timeoutMs({3, 0}), lastCommunication(0), publishCurrentId(0), keepAlive(300),
+#if MQTTUseAuth == 1
+               inConnect(false),
+#endif
                recvState(Ready), recvBufferSize(max(callback->maxPacketSize(), 8U)), maxPacketSize(65535), available(0), recvBuffer((uint8*)::malloc(recvBufferSize)), packetExpectedVBSize(Protocol::MQTT::Common::VBInt(recvBufferSize).getSize())
         {}
         ~Impl() { delete0(socket); ::free(recvBuffer); recvBuffer = 0; recvBufferSize = 0; }
 
         inline void setTimeout(uint32 timeout)
-#if MQTTUseAuth == 1
-               inConnect(false),
-#endif
         {
             timeoutMs.tv_sec = (uint32)timeout / 1024; // Avoid division here (compiler should shift the value here), the value is approximative anyway
             timeoutMs.tv_usec = ((uint32)timeout & 1023) * 977;  // Avoid modulo here and make sure it doesn't overflow (since 1023 * 977 < 1000000)
@@ -1561,6 +1561,12 @@ namespace Network { namespace Client {
             impl->cb->messageReceived(packet.fixedVariableHeader.topicName, DynamicBinDataView(packet.payload.size, packet.payload.data), packet.fixedVariableHeader.packetID, packet.props);
             return enterPublishCycle(packet, false);
         }
+#if MQTTUseAuth == 1
+        case Protocol::MQTT::V5::AUTH:
+        {
+            return impl->handleAuth();
+        }
+#endif
         default: // Ignore all other packets currently 
             break;
         }
@@ -1578,13 +1584,6 @@ namespace Network { namespace Client {
 
         ScopedLock scope(impl->lock);
         if (!impl->isOpen()) return ErrorType::Success;
-#if MQTTUseAuth == 1
-        case Protocol::MQTT::V5::AUTH:
-        {
-            return impl->handleAuth();
-        }
-#endif
-
         
         Protocol::MQTT::V5::ControlPacket<Protocol::MQTT::V5::DISCONNECT> packet;
         packet.fixedVariableHeader.reasonCode = code;
