@@ -18,7 +18,14 @@ menu "esp-eMQTT5"
         depends on ESP_EMQTT5_ENABLED
         default n
         help
-            You can activate TLS but it burns space in memory and flash.
+        You can activate TLS but it burns space in memory and flash.
+
+    config ESP_EMQTT5_LOW_LATENCY
+        bool "Enable low latency event loop"
+        depends on ESP_EMQTT5_ENABLED
+        default n
+        help
+        This prevent blocking on the MQTT socket in the eventLoop. This means the default timeout that's set isn't respected, and a 100% CPU hog if you don't throttle the eventLoop in your task yourself.
 
     config ESP_EMQTT5_AUTH
         bool "Enable AUTH packet processing"
@@ -26,6 +33,13 @@ menu "esp-eMQTT5"
         default n
         help
         If you want to support AUTH packet with your broker, enable this.
+
+    config ESP_EMQTT5_UBSUB
+        bool "Enable dynamic unsubscribe function"
+        depends on ESP_EMQTT5_ENABLED
+        default n
+        help
+        Only required if you need to unsubsribe to a topic without disconnecting. Increase binary size if selected
 
     config ESP_EMQTT5_DUMP
         bool "Enable communication dumping"

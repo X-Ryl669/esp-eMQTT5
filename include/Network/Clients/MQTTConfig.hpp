@@ -14,10 +14,16 @@
     Default: 0 */
 #define MQTTUseAuth CONFIG_ESP_EMQTT5_AUTH
 
-/** Dump all MQTT communication. 
-    This causes a large increase in binary size, induce an important latency cost, and lower the security by 
-    displaying potentially private informations 
-    Default: 0 */ 
+/** Unsubscribe support. Set to 1 if you intend to unsubscribe dynamically and partially from the broker.
+    Typically unused for the majority of embedded case where the client is subscribing all topics at once and let
+    the broker unsubscribe by itself upon disconnection, this saves binary size if left disabled
+    Default: 0 */
+#define MQTTUseUnsubscribe CONFIG_ESP_EMQTT5_UNSUB
+
+/** Dump all MQTT communication.
+    This causes a large increase in binary size, induce an important latency cost, and lower the security by
+    displaying potentially private informations
+    Default: 0 */
 #define MQTTDumpCommunication CONFIG_ESP_EMQTT5_DUMP
 
 /** Remove all validation from MQTT types.
@@ -37,52 +43,76 @@
 #define MQTTUseTLS          CONFIG_ESP_EMQTT5_TLS_ENABLE
 
 /** Simple socket code.
-    If set to true, this disables the optimized network code from ClassPath and fallback to the minimal subset 
+    If set to true, this disables the optimized network code from ClassPath and fallback to the minimal subset
     of BSD socket API (typically send / recv / connect / select / close / setsockopt).
     This also limits binary code size but prevent using SSL/TLS (unless you write a wrapper for it).
     This is usually enabled for embedded system with very limited resources.
-    
-    Please notice that this also change the meaning of timeout values. If it's not set, then timeouts represent 
-    the maximum time that a method could spend (including all sub-functions calls). It's deterministic. 
-    When it's set, then timeouts represent the maximum inactivity time before any method times out. So if you 
-    have a very slow connection sending 1 byte per the timeout delay, in the former case, it'll timeout after 
-    the first byte is received, while in the latter case, it might never timeout and take up to 
+
+    Please notice that this also change the meaning of timeout values. If it's not set, then timeouts represent
+    the maximum time that a method could spend (including all sub-functions calls). It's deterministic.
+    When it's set, then timeouts represent the maximum inactivity time before any method times out. So if you
+    have a very slow connection sending 1 byte per the timeout delay, in the former case, it'll timeout after
+    the first byte is received, while in the latter case, it might never timeout and take up to
     `timeout * packetLength` time to return.
     Default: 0 */
 #define MQTTOnlyBSDSocket   1
 
+/** Low latency mode
+    If set to 1, this will only wait on the receiving socket in a non blocking fashion.
+    You'll use this if you need to do other processing in your main application loop. It reduces latency for your
+    other application code at the cost of increased CPU usage since the loop time will decrease from the default
+    timeout set to mainly the duration of a system call.
+
+    This allow implies you provide a BSD compatible select function for the socket implementation.
+
+    Default: 0 */
+#define MQTTLowLatency  CONFIG_ESP_EMQTT5_LOW_LATENCY
+
+
 // The part below is for building only, it's made to generate a message so the configuration is visible at build time
 #if MQTTUseAuth == 1
   #define CONF_AUTH "Auth_"
-#else 
+#else
   #define CONF_AUTH "_"
+#endif
+
+#if MQTTUseUnsubscribe == 1
+  #define CONF_UNSUB "Unsub_"
+#else
+  #define CONF_UNSUB "_"
 #endif
 
 #if MQTTDumpCommunication == 1
   #define CONF_DUMP "Dump_"
-#else 
+#else
   #define CONF_DUMP "_"
 #endif
 
 #if MQTTAvoidValidation == 1
   #define CONF_VALID "Check_"
-#else 
+#else
   #define CONF_VALID "_"
 #endif
 
 #if MQTTUseTLS == 1
   #define CONF_TLS "TLS_"
-#else 
+#else
   #define CONF_TLS "_"
+#endif
+
+#if MQTTLowLatency == 1
+  #define CONF_LL "LL_"
+#else
+  #define CONF_LL "_"
 #endif
 
 #if MQTTOnlyBSDSocket == 1
   #define CONF_SOCKET "BSD"
-#else 
+#else
   #define CONF_SOCKET "CP"
 #endif
 
-#pragma message("Building eMQTT5 with flags: " CONF_AUTH CONF_DUMP CONF_VALID CONF_TLS CONF_SOCKET)
+#pragma message("Building eMQTT5 with flags: " CONF_AUTH CONF_UNSUB CONF_DUMP CONF_VALID CONF_TLS CONF_LL CONF_SOCKET)
 
 
 #endif
