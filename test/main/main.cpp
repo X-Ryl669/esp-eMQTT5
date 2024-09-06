@@ -57,7 +57,7 @@ static void connect() {
   {
       ESP_LOGE(LOGNAME, "Failed connection to %s with error: %d", MQTT_HOST, (int)ret);
       return;
-  } 
+  }
 
   // publish packet first
   const char data[] = "{\"a\":3}";
@@ -68,6 +68,17 @@ static void connect() {
       return;
   }
   ESP_LOGI(LOGNAME, "Published %s to %s", data, topic);
+  // If you don't run the eventLoop in a task, because you only need to publish once, you'll Need to run the event loop for some time so the publish cycle can happen
+  // uint32 publishCycleCount = (uint32)QoS;
+  // while (publishCycleCount--)
+  // {   // By a good design or pure randomness, the number of loop to run is equal to the QoS level...
+  //     if (Network::Client::MQTTv5::ErrorType ret = client.eventLoop())
+  //     {
+  //         ESP_LOGE(LOGNAME, "Event loop failed with error: %d\n", (int)ret);
+  //         return;
+  //     }
+  // }
+
 
   // subscribe to a topic
   if (Network::Client::MQTTv5::ErrorType ret = client.subscribe(topic, Protocol::MQTT::V5::GetRetainedMessageAtSubscriptionTime, true, Protocol::MQTT::V5::AtMostOne, false))
@@ -157,5 +168,5 @@ extern "C" void app_main() {
   // xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually happened
   if (bits & WIFI_CONNECTED_BIT) {
       connect();
-  } 
+  }
 }

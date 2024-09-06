@@ -29,8 +29,24 @@
 /** Remove all validation from MQTT types.
     This removes validation check for all MQTT types in order to save binary size.
     This is only recommanded if you are sure about your broker implementation (don't set this to 1 if you
-    intend to connect to unknown broker) */
+    intend to connect to unknown broker)
+    Default: 0 */
 #define MQTTAvoidValidation CONFIG_ESP_EMQTT5_SKIPVAL
+
+/** Limit implementation to Quality Of Service.
+    Since version 2 of the library, the QoS management code was improved (it doesn't rely on your application
+    anymore to implement a compliant MQTT client upon reconnections). Since QoS is not rely useful for most
+    applications, this overhead can now be disabled to mimic version 1 behavior.
+
+    Set to:
+    - 1 for enable complete QoS management. This imply allocating and using a buffer that's 3x the maximum packet
+      size you've set (for saving QoS packets against disconnection) plus a small overhead in binary size.
+    - 0 to implement a non compliant, but QoS capable client. No packet are saved for QoS, but the client will
+      claim and follow QoS protocols for publish cycle. The binary overhead is also reduced.
+    - -1 to disable QoS management. The client will never claim it is QoS capable. Saves the maximum binary size.
+    Default: 1 */
+#define MQTTQoSSupportLevel CONFIG_ESP_EMQTT5_QOSSUPPORTLEVEL
+
 
 /** Enable SSL/TLS code.
     If your broker is on the public internet, it's a good idea to enable TLS to avoid communication snooping.
@@ -94,6 +110,14 @@
   #define CONF_VALID "_"
 #endif
 
+  #if MQTTQoSSupportLevel == 1
+    #define CONF_QOS "QoS_"
+  #elif MQTTQoSSupportLevel == 0
+    #define CONF_QOS "qos_"
+  #else
+    #define CONF_QOS "_"
+  #endif
+
 #if MQTTUseTLS == 1
   #define CONF_TLS "TLS_"
 #else
@@ -112,7 +136,7 @@
   #define CONF_SOCKET "CP"
 #endif
 
-#pragma message("Building eMQTT5 with flags: " CONF_AUTH CONF_UNSUB CONF_DUMP CONF_VALID CONF_TLS CONF_LL CONF_SOCKET)
 
+#pragma message("Building eMQTT5 with flags: " CONF_AUTH CONF_UNSUB CONF_DUMP CONF_VALID CONF_QOS CONF_TLS CONF_LL CONF_SOCKET)
 
 #endif
