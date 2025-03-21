@@ -1,4 +1,4 @@
-version: "2.0.0"
+version: "2.0.0-esp2"
 description: "A C++ complete and size optimized MQTTv5 component. Provide a true and efficient MQTTv5 client for a fraction of the size of standard clients"
 
 targets:
