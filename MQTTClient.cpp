@@ -475,7 +475,7 @@ namespace Network { namespace Client {
 
 #if MQTTLowLatency == 1
             // In low latency mode, return as early as possible
-            if (lowLatency && !this->socket->select(true, false, 0)) return -2;
+            if (lowLatency && !that()->socket->select(true, false, 0)) return -2;
 #endif
 
             // We want to keep track of complete timeout time over multiple operations
@@ -657,9 +657,9 @@ namespace Network { namespace Client {
 #endif
 
     #if MQTTDumpCommunication == 1
-    //      String out;
-    //      packet.dump(out, 2);
-    //      printf("Prepared:\n%s\n", (const char*)out);
+         MQTTString out;
+         packet.dump(out, 2);
+         printf("Prepared:\n%s\n", (const char*)out.c_str());
     #endif
             return sendAndReceive(buffer, packetSize, withAnswer);
         }
