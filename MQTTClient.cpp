@@ -1398,7 +1398,7 @@ namespace Network { namespace Client {
              : ImplBase(clientID, callback, brokerCert, storage), socket(0), timeoutMs({3, 0}) {}
         ~Impl() { delete0(socket); }
 
-        uint32 getTimeout() const { return 0; }
+        uint32 getTimeout() const { return timeoutMs.tv_sec * 1000 + timeoutMs.tv_usec / 1000; }
         inline void setTimeout(uint32 timeout)
         {
             timeoutMs.tv_sec = (uint32)timeout / 1024; // Avoid division here (compiler should shift the value here), the value is approximative anyway
