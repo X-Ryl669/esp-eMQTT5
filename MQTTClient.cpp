@@ -840,19 +840,19 @@ namespace Network { namespace Client {
             {
                 // Parse the Auth packet and call the user method
                 // Try to find the auth method, and the auth data
-                DynamicStringView authMethod;
-                DynamicBinDataView authData;
+                Protocol::MQTT::Common::DynamicStringView authMethod;
+                Protocol::MQTT::Common::DynamicBinDataView authData;
                 Protocol::MQTT::V5::VisitorVariant visitor;
                 while (packet.props.getProperty(visitor) && (authMethod.length == 0 || authData.length == 0))
                 {
                     if (visitor.propertyType() == Protocol::MQTT::V5::AuthenticationMethod)
                     {
-                        auto view = visitor.as< DynamicStringView >();
+                        auto view = visitor.as< Protocol::MQTT::Common::DynamicStringView >();
                         authMethod = *view;
                     }
                     else if (visitor.propertyType() == Protocol::MQTT::V5::AuthenticationData)
                     {
-                        auto data = visitor.as< DynamicBinDataView >();
+                        auto data = visitor.as< Protocol::MQTT::Common::DynamicBinDataView >();
                         authData = *data;
                     }
                 }
@@ -885,8 +885,8 @@ namespace Network { namespace Client {
                 }
                 // Now, we are going to parse the other properties
 #if MQTTUseAuth == 1
-                DynamicStringView authMethod;
-                DynamicBinDataView authData;
+                Protocol::MQTT::Common::DynamicStringView authMethod;
+                Protocol::MQTT::Common::DynamicBinDataView authData;
 #endif
                 Protocol::MQTT::V5::VisitorVariant visitor;
                 while (packet.props.getProperty(visitor))
@@ -914,12 +914,12 @@ namespace Network { namespace Client {
 #if MQTTUseAuth == 1
                     case Protocol::MQTT::V5::AuthenticationMethod:
                     {
-                        auto view = visitor.as<DynamicStringView>();
+                        auto view = visitor.as<Protocol::MQTT::Common::DynamicStringView>();
                         authMethod = *view;
                     } break;
                     case Protocol::MQTT::V5::AuthenticationData:
                     {
-                        auto data = visitor.as<DynamicBinDataView>();
+                        auto data = visitor.as<Protocol::MQTT::Common::DynamicBinDataView>();
                         authData = *data;
                     } break;
 #endif
@@ -931,7 +931,7 @@ namespace Network { namespace Client {
                 if (packet.fixedVariableHeader.reasonCode == Protocol::MQTT::V5::NotAuthorized
                  || packet.fixedVariableHeader.reasonCode == Protocol::MQTT::V5::BadAuthenticationMethod)
                 {   // Let the user be aware of the required authentication properties so next connect will/can contains them
-                    cb->authReceived((ReasonCodes)packet.fixedVariableHeader.reasonCode, authMethod, authData, packet.props);
+                    cb->authReceived((Protocol::MQTT::V5::ReasonCodes)packet.fixedVariableHeader.reasonCode, authMethod, authData, packet.props);
                     return ErrorType::NetworkError; // Force close the connection as per 4.12.0-1
                 }
 #endif
