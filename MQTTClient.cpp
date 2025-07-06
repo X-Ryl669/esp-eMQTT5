@@ -1003,7 +1003,7 @@ namespace Network { namespace Client {
         Utils::hexDump(packetDump, buffer, length, 16, true, true);
         Protocol::MQTT::V5::FixedHeader header;
         header.raw = buffer[0];
-        Logger::log(Logger::Dump, "%s: %s(R:%d,Q:%d,D:%d)%s", prompt, Protocol::MQTT::V5::Helper::getControlPacketName((Protocol::MQTT::Common::ControlPacketType)(uint8)header.type), (uint8)header.retain, (uint8)header.QoS, (uint8)header.dup, (const char*)packetDump);
+        Logger::elogm(Log::Dump, "%s: %s(R:%d,Q:%d,D:%d)%s", prompt, Protocol::MQTT::V5::Helper::getControlPacketName((Protocol::MQTT::Common::ControlPacketType)(uint8)header.type), (uint8)header.retain, (uint8)header.QoS, (uint8)header.dup, (const char*)packetDump);
     }
   #endif
 
@@ -1054,7 +1054,7 @@ namespace Network { namespace Client {
                 {
                     if (const char * error = sslContext->loadCertificateFromDER(brokerCert->data, brokerCert->length))
                     {
-                        Logger::log(Logger::Error, "Could not load the given certificate: %s", error);
+                        Logger::elogm(Log::Error, "Could not load the given certificate: %s", error);
                         return -2;
                     }
                 }
