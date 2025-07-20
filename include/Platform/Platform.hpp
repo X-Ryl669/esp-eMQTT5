@@ -1,7 +1,7 @@
 #ifndef hpp_CPP_Platform_CPP_hpp
 #define hpp_CPP_Platform_CPP_hpp
 // Types like size-t or NULL
-#include "../Types.hpp"
+#include "MQTTTypes.hpp"
 
 /** The platform specific declarations */
 namespace Platform
@@ -28,9 +28,9 @@ namespace Platform
 #else
 #define PathSeparator  "/"
 #endif
-    
+
     /** File separator char */
-    enum 
+    enum
     {
 #ifdef _WIN32
         Separator = '\\'
@@ -40,14 +40,14 @@ namespace Platform
     };
 
     /** The simple malloc overload.
-        If you need to use another allocator, you should define this method 
+        If you need to use another allocator, you should define this method
         @param size         Element size in bytes
         @param largeAccess  If set, then optimized functions are used for large page access.
                             Allocation for large access should call free with large access. */
     inline void * malloc(size_t size, const bool largeAccess = false) { return ::malloc(size); }
-    
+
     /** The simple calloc overload.
-        If you need to use another allocator, you should define this method 
+        If you need to use another allocator, you should define this method
         @param elementCount  How many element to allocate
         @param size          One element size in bytes
         @param largeAccess  If set, then optimized functions are used for large page access.
@@ -56,13 +56,13 @@ namespace Platform
     /** A simpler version of calloc, with only one size specified */
     inline void * zalloc(size_t size, const bool largeAccess = false) { return calloc(1, size, largeAccess); }
     /** The simple free overload.
-        If you need to use another allocator, you should define this method 
-        @param p     A pointer to an area to return to the heap 
+        If you need to use another allocator, you should define this method
+        @param p     A pointer to an area to return to the heap
         @param largeAccess  If set, then optimized functions are used for large page access.
                             Allocation for large access should call free with large access. */
     inline void free(void * p, const bool largeAccess = false) { return ::free(p); }
-    /** The simple realloc overload. 
-        If you need to use another allocator, you should define this method 
+    /** The simple realloc overload.
+        If you need to use another allocator, you should define this method
         @param p    A pointer to the allocated area to reallocate
         @param size The required size of the new area in bytes
         @warning Realloc is intrinsically unsafe to use, since it can leak memory in most case, use safeRealloc instead */
@@ -70,9 +70,9 @@ namespace Platform
 
     /** The safe realloc method.
         This method avoid allocating a zero sized byte array (like realloc(0, 0) does).
-        It also avoid leaking memory as a code like (ptr = realloc(ptr, newSize) 
+        It also avoid leaking memory as a code like (ptr = realloc(ptr, newSize)
         (in case of error) does). */
-    inline void * safeRealloc(void * p, size_t size) 
+    inline void * safeRealloc(void * p, size_t size)
     {
         if (p == 0 && size == 0) return 0;
         if (size == 0)
@@ -87,22 +87,22 @@ namespace Platform
         return other;
     }
     /** Ask for a hidden input that'll be stored in the UTF-8 buffer.
-        This requires a console. 
+        This requires a console.
         Under Windows, this requires the process to be run from a command line.
-        This is typically required for asking a password. 
+        This is typically required for asking a password.
         New line are not retained in the output, if present.
-        
-        @param prompt   The prompt that's displayed on user console 
-        @param buffer   A pointer to a buffer that's at least (size) byte large 
+
+        @param prompt   The prompt that's displayed on user console
+        @param buffer   A pointer to a buffer that's at least (size) byte large
                         that'll be filled by the function
-        @param size     On input, the buffer size, on output, it's set to the used buffer size 
+        @param size     On input, the buffer size, on output, it's set to the used buffer size
         @return false if it can not hide the input, or if it can't get any char in it  */
     bool queryHiddenInput(const char * prompt, char * buffer, size_t & size);
     /** Get the current process name.
         This does not rely on remembering the argv[0] since this does not exists on Windows.
         This returns the name of executable used to run the process */
     const char * getProcessName();
-	
+
 	inline bool isUnderDebugger()
 	{
 #if (DEBUG==1)
@@ -138,11 +138,11 @@ namespace Platform
 #endif
 	    return false;
 	}
-    
+
     /** This is used to trigger the debugger when called */
     inline void breakUnderDebugger()
     {
-      
+
 #if (DEBUG==1)
         if(isUnderDebugger())
     #ifdef _WIN32
@@ -158,7 +158,7 @@ namespace Platform
     #endif
 #endif
     }
-    
+
 #if defined(_POSIX) || defined(_DOXYGEN)
     /** Useful RAII class for Posix file index */
     class FileIndexWrapper
@@ -184,16 +184,16 @@ namespace Platform
         FileIndexWrapper(int fd) : fd(fd) {}
         ~FileIndexWrapper() { if (fd >= 0) close(fd); fd = -1; }
     };
-    
-    /** Turn the current process into a daemon. 
-        Log will be redirected to syslog service, 
-        Input and output file descriptor will be closed, and we'll detach from the 
+
+    /** Turn the current process into a daemon.
+        Log will be redirected to syslog service,
+        Input and output file descriptor will be closed, and we'll detach from the
         running terminal.
         @warning If you intend to run a server or anything that does file-manipulation, please remember
                  that this is forking and the parent must call _exit() or std::quick_exit() and not exit() or return from main.
-                 In the later case, the destructors will likely modify the file descriptors of the shared resources (with the child 
+                 In the later case, the destructors will likely modify the file descriptors of the shared resources (with the child
                  daemon) and lead to hard to debug issues.
-                 
+
         @param pathToPIDFile    The path to the file containing the daemon PID (useful for system script typically)
         @param syslogName       The name of the syslog reported daemon
         @param parent           On parent process will be set to true, and false in child process
@@ -217,25 +217,25 @@ namespace Platform
     private:
         /** The library internal handle */
         void * handle;
-        
+
         // Interface
     public:
         /** Load the given symbol out of this library
-            @param nameInUTF8   The name of the symbol. It's up to the caller to ensure cross platform name are used 
+            @param nameInUTF8   The name of the symbol. It's up to the caller to ensure cross platform name are used
             @return A pointer on the loaded symbol, or 0 if not found */
         void * loadSymbol(const char * nameInUTF8) const;
         /** Load a symbol and cast it to the given format.
-            @param nameInUTF8   The name of the symbol. It's up to the caller to ensure cross platform name are used 
+            @param nameInUTF8   The name of the symbol. It's up to the caller to ensure cross platform name are used
             @sa loadSymbol */
         template <class T>
         inline T loadSymbolAs(const char * nameInUTF8) const { return reinterpret_cast<T>(loadSymbol(nameInUTF8)); }
-        /** Get the platform expected file name for the given library name 
+        /** Get the platform expected file name for the given library name
             @param libraryName   The name of the library, excluding suffix (like .DLL, or .so).
             @param outputName    A pointer to a buffer that at least 10 bytes larger than the libraryName buffer. */
         static void getPlatformName(const char * libraryName, char * outputName);
         /** Check if the library has loaded correctly */
         inline bool isLoaded() const { return handle != 0; }
-    
+
         // Construction and destruction
     public:
         /** The constructor */
