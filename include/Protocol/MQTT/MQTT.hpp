@@ -2,10 +2,9 @@
 #define hpp_CPP_MQTT_CPP_hpp
 
 // We need basic types
-#include "../../Types.hpp"
-#include <MQTTTypes.hpp>
+#include "MQTTTypes.hpp"
 // We need Platform code for allocations too
-#include "../../Platform/Platform.hpp"
+#include "Platform/Platform.hpp"
 
 #if (MQTTDumpCommunication == 1)
     // Because all projects are different, it's hard to give a generic method for dumping elements.
@@ -594,12 +593,12 @@ namespace Protocol
 
 
                 /** Copy operator */
-                VBInt & operator =(const VBInt & other) 
+                VBInt & operator =(const VBInt & other)
                 {
-                    word = other.word; 
+                    word = other.word;
                     size = other.size;
                     return *this;
-                } 
+                }
 
                 /** Set the value. This algorithm is 26% faster compared to the basic method shown in the standard */
                 VBInt & operator = (uint32 other)
@@ -1363,7 +1362,7 @@ namespace Protocol
                 void dump(MQTTString & out, const int indent = 0)
                 {
                     out += MQTTStringPrintf("%*sType %s\n", indent, "", PrivateRegistry::getPropertyName(type));
-                    out += MQTTStringPrintf("%*s", indent+2, ""); MQTTHexDump(out, (const uint8*)value.raw(), value.typeSize()); out += "\n"; 
+                    out += MQTTStringPrintf("%*s", indent+2, ""); MQTTHexDump(out, (const uint8*)value.raw(), value.typeSize()); out += "\n";
                 }
 #endif
 

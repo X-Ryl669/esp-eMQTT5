@@ -13,14 +13,14 @@
 
 #if MQTTOnlyBSDSocket != 1
   // We need socket declaration
-  #include "include/Network/Socket.hpp"
+  #include "Network/Socket.hpp"
   // We need SSL socket declaration too
-  #include "include/Network/SSLSocket.hpp"
+  #include "Network/SSLSocket.hpp"
   // We need FastLock too
-  #include "include/Threading/Lock.hpp"
+  #include "Threading/Lock.hpp"
   #if MQTTDumpCommunication == 1
     // We need hexDump
-    #include "include/Utils/Dump.hpp"
+    #include "Utils/Dump.hpp"
   #endif
 #endif
 #if MQTTUseTLS == 1
@@ -34,7 +34,7 @@
   #include <mbedtls/ssl.h>
 #endif
 // We need StackHeapBuffer to avoid stressing the heap allocator when it's not required
-#include "include/Platform/StackHeapBuffer.hpp"
+#include "Platform/StackHeapBuffer.hpp"
 
 
 // This is the maximum allocation that'll be performed on the stack before it's being replaced by heap allocation
