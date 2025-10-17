@@ -62,6 +62,12 @@ menu "esp-eMQTT5"
         help
         1 for complete QoS management with resend on reconnect, 0 for QoS support but no resend on reconnect (saves 3x the recv buffer size of heap space), and -1 to disable QoS support (smallest binary size)
 
+    config ESP_EMQTT5_MULTITHREAD
+        int "Publishing in different task/thread"
+        depends on ESP_EMQTT5_ENABLED
+        default 1
+        help
+        1 if your code is publishing from a different thread/task than the eventLoop thread, adds protection mechanism. 0 disable protection for monothread access
 
     config ESP_EMQTT5_FORCEINCLUDE
         string "Path to include file to be used before any other. Default to empty file"
