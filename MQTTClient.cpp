@@ -1009,6 +1009,7 @@ namespace Network { namespace Client {
                 )
                 {
                     // We have failed connection with the following reason:
+                    cb->connectionLost((ReasonCodes)packet.fixedVariableHeader.reasonCode, &packet.props);
                     return (MQTTv5::ReasonCodes)packet.fixedVariableHeader.reasonCode;
                 }
                 // Now, we are going to parse the other properties
